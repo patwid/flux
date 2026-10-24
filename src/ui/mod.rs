@@ -1,6 +1,7 @@
 pub mod app;
 pub mod aspect;
 pub mod channel;
+pub mod comments;
 pub mod downloads;
 pub mod feed;
 pub mod format;
