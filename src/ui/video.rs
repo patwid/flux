@@ -853,7 +853,6 @@ fn add_layouts(view: &adw::MultiLayoutView) {
     // The details, below `player` if given, in a scrolled clamp.
     let scrolled = |player: Option<&gtk::Widget>| {
         let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        content.set_margin_all(12);
         if let Some(player) = player {
             content.append(player);
         }
@@ -864,6 +863,10 @@ fn add_layouts(view: &adw::MultiLayoutView) {
             .child(
                 &adw::Clamp::builder()
                     .maximum_size(1000)
+                    .margin_top(12)
+                    .margin_bottom(12)
+                    .margin_start(12)
+                    .margin_end(12)
                     .child(&content)
                     .build(),
             )

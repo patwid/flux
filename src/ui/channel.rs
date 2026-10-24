@@ -115,11 +115,11 @@ impl Component for ChannelPage {
 
                 adw::Clamp {
                     set_maximum_size: 800,
+                    set_margin_all: 12,
 
                     gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
                         set_spacing: 18,
-                        set_margin_all: 12,
 
                         gtk::Box {
                             set_orientation: gtk::Orientation::Vertical,
