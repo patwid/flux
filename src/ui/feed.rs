@@ -127,6 +127,7 @@ impl Component for FeedPage {
     view! {
         adw::ToolbarView {
             add_top_bar = &adw::HeaderBar {
+                pack_end: &widgets::primary_menu(),
                 #[wrap(Some)]
                 set_title_widget = &adw::WindowTitle {
                     set_title: "Feed",

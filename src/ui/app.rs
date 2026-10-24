@@ -1,4 +1,5 @@
 use relm4::adw::prelude::*;
+use relm4::gtk::gio;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, adw, gtk,
 };
@@ -26,6 +27,8 @@ pub struct App {
     downloads: Controller<DownloadsPage>,
     toasts: adw::ToastOverlay,
     navigation: adw::NavigationView,
+    /// The top-level sections.
+    stack: adw::ViewStack,
     /// Pages pushed onto the navigation view, kept alive while shown.
     pages: Vec<(adw::NavigationPage, Page)>,
 }
@@ -45,6 +48,10 @@ pub enum Msg {
     SubscriptionsChanged,
     OpenReplies(Comment),
     Popped(adw::NavigationPage),
+    /// Shows the search section with its entry focused.
+    Search,
+    /// Refreshes the feed if it is shown.
+    Refresh,
 }
 
 impl From<search::Output> for Msg {
@@ -142,13 +149,14 @@ impl Component for App {
             downloads,
             toasts: adw::ToastOverlay::new(),
             navigation: adw::NavigationView::new(),
+            stack: adw::ViewStack::new(),
             pages: Vec::new(),
         };
         let toasts = &model.toasts;
         let navigation = &model.navigation;
         let widgets = view_output!();
 
-        let stack = adw::ViewStack::new();
+        let stack = &model.stack;
         let add_page = |name: &str, title: &str, icon: &str, child: &gtk::Widget| {
             stack.add_titled_with_icon(child, Some(name), title, icon);
         };
@@ -190,9 +198,9 @@ impl Component for App {
             }
         });
 
-        widgets.layouts.add_layout(wide_layout(&stack));
-        widgets.layouts.add_layout(narrow_layout(&stack));
-        widgets.layouts.set_child("content", &stack);
+        widgets.layouts.add_layout(wide_layout(stack));
+        widgets.layouts.add_layout(narrow_layout(stack));
+        widgets.layouts.set_child("content", stack);
         widgets.layouts.set_layout_name("wide");
 
         let narrow = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
@@ -202,6 +210,7 @@ impl Component for App {
         ));
         narrow.add_setter(&widgets.layouts, "layout-name", Some(&"narrow".to_value()));
         root.add_breakpoint(narrow);
+        add_actions(&root, &sender);
 
         ComponentParts { model, widgets }
     }
@@ -227,8 +236,94 @@ impl Component for App {
                 self.pages.retain(|(p, _)| *p != page);
                 self.history.emit(history::Input::Reload);
             }
+            Msg::Search => {
+                self.navigation.pop_to_tag("main");
+                self.stack.set_visible_child_name("search");
+                self.search.model().entry.grab_focus();
+            }
+            Msg::Refresh => {
+                let main = self.navigation.visible_page().and_then(|p| p.tag());
+                if main.as_deref() == Some("main")
+                    && self.stack.visible_child_name().as_deref() == Some("feed")
+                {
+                    self.feed
+                        .emit(super::feed::Input::State(super::feed::Msg::Refresh));
+                }
+            }
         }
     }
+}
+
+/// Adds the window actions and their keyboard shortcuts.
+fn add_actions(window: &adw::ApplicationWindow, sender: &ComponentSender<App>) {
+    let action = |name: &str, accels: &[&str], activate: Box<dyn Fn()>| {
+        let action = gio::SimpleAction::new(name, None);
+        action.connect_activate(move |_, _| activate());
+        window.add_action(&action);
+        relm4::main_application().set_accels_for_action(&format!("win.{name}"), accels);
+    };
+    let window_ = window.clone();
+    action(
+        "about",
+        &[],
+        Box::new(move || about_dialog().present(Some(&window_))),
+    );
+    let window_ = window.clone();
+    action(
+        "shortcuts",
+        &["<Control>question"],
+        Box::new(move || shortcuts_dialog().present(Some(&window_))),
+    );
+    let input = sender.input_sender().clone();
+    action(
+        "search",
+        &["<Control>f"],
+        Box::new(move || input.emit(Msg::Search)),
+    );
+    let input = sender.input_sender().clone();
+    action(
+        "refresh",
+        &["<Control>r", "F5"],
+        Box::new(move || input.emit(Msg::Refresh)),
+    );
+}
+
+fn about_dialog() -> adw::AboutDialog {
+    adw::AboutDialog::builder()
+        .application_name("Flux")
+        .application_icon(crate::APP_ID)
+        .version(env!("CARGO_PKG_VERSION"))
+        .developer_name("Patrick Widmer")
+        .license_type(gtk::License::Gpl30)
+        .build()
+}
+
+fn shortcuts_dialog() -> adw::ShortcutsDialog {
+    let dialog = adw::ShortcutsDialog::new();
+    let section = |title: &str, items: &[(&str, &str)]| {
+        let section = adw::ShortcutsSection::new(Some(title));
+        for (title, accel) in items {
+            section.add(adw::ShortcutsItem::new(title, accel));
+        }
+        dialog.add(section);
+    };
+    section(
+        "General",
+        &[
+            ("Search", "<Control>f"),
+            ("Refresh Feed", "<Control>r"),
+            ("Keyboard Shortcuts", "<Control>question"),
+        ],
+    );
+    section(
+        "Video",
+        &[
+            ("Play or Pause", "space"),
+            ("Toggle Fullscreen", "f"),
+            ("Leave Fullscreen", "Escape"),
+        ],
+    );
+    dialog
 }
 
 impl App {

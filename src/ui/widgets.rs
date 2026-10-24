@@ -1,6 +1,7 @@
 //! Widgets shared between pages.
 
 use relm4::adw::prelude::*;
+use relm4::gtk::gio;
 use relm4::{adw, gtk};
 
 use super::{format, images};
@@ -67,4 +68,17 @@ pub fn boxed_list() -> gtk::ListBox {
         .build();
     list.add_css_class("boxed-list");
     list
+}
+
+/// The primary menu button, shown at the end of each section's header bar.
+pub fn primary_menu() -> gtk::MenuButton {
+    let menu = gio::Menu::new();
+    menu.append(Some("_Keyboard Shortcuts"), Some("win.shortcuts"));
+    menu.append(Some("_About Flux"), Some("win.about"));
+    gtk::MenuButton::builder()
+        .icon_name("open-menu-symbolic")
+        .tooltip_text("Main Menu")
+        .menu_model(&menu)
+        .primary(true)
+        .build()
 }
