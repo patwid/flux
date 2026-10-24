@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use relm4::adw::prelude::*;
+use relm4::gtk::{gio, glib};
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
 use super::{Services, format, log_db_error, widgets};
@@ -106,7 +107,9 @@ impl State {
 pub struct FeedPage {
     state: State,
     services: Services,
-    list: gtk::ListBox,
+    /// The listed videos, shown by `list` as rows built when they scroll
+    /// into view.
+    videos: gio::ListStore,
     refreshed_at: Option<DateTime<Utc>>,
 }
 
@@ -164,14 +167,17 @@ impl Component for FeedPage {
                 add_named[Some("list")] = &gtk::ScrolledWindow {
                     set_hscrollbar_policy: gtk::PolicyType::Never,
 
-                    adw::Clamp {
+                    adw::ClampScrollable {
                         set_maximum_size: 800,
-                        set_margin_all: 12,
 
-                        #[local_ref]
-                        list -> gtk::ListBox {
-                            connect_row_activated[sender] => move |_, row| {
-                                sender.input(Input::State(Msg::Activate(row.index() as usize)));
+                        gtk::ListView {
+                            set_model: Some(&gtk::NoSelection::new(Some(model.videos.clone()))),
+                            set_factory: Some(&video_factory()),
+                            set_single_click_activate: true,
+                            set_margin_all: 12,
+                            add_css_class: "cards",
+                            connect_activate[sender] => move |_, position| {
+                                sender.input(Input::State(Msg::Activate(position as usize)));
                             },
                         },
                     },
@@ -197,10 +203,9 @@ impl Component for FeedPage {
         let model = FeedPage {
             state: State::default(),
             services,
-            list: widgets::boxed_list(),
+            videos: gio::ListStore::new::<glib::BoxedAnyObject>(),
             refreshed_at: None,
         };
-        let list = &model.list;
         let widgets = view_output!();
         sender.input(Input::Reload);
         ComponentParts { model, widgets }
@@ -244,11 +249,14 @@ impl Component for FeedPage {
             }
         }
         if reload {
-            self.list.remove_all();
-            for video in &self.state.videos {
-                self.list
-                    .append(&widgets::with_chevron(widgets::video_row(video)));
-            }
+            let videos: Vec<_> = self
+                .state
+                .videos
+                .iter()
+                .cloned()
+                .map(glib::BoxedAnyObject::new)
+                .collect();
+            self.videos.splice(0, self.videos.n_items(), &videos);
         }
     }
 
@@ -260,6 +268,24 @@ impl Component for FeedPage {
     ) {
         self.update(Input::State(Msg::Refreshed(refresh)), sender, root);
     }
+}
+
+/// Builds a video row for each item of a list of [`Video`]s.
+fn video_factory() -> gtk::SignalListItemFactory {
+    let factory = gtk::SignalListItemFactory::new();
+    // A new row per bind: a reused one could show a thumbnail that was
+    // still loading for the video bound before.
+    factory.connect_bind(|_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let Some(video) = item.item().and_downcast::<glib::BoxedAnyObject>() else {
+            return;
+        };
+        let row = widgets::with_chevron(widgets::video_row(&video.borrow::<Video>()));
+        item.set_child(Some(&row));
+    });
+    factory
 }
 
 impl FeedPage {

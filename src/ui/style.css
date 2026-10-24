@@ -32,3 +32,24 @@ button.replies {
 .player statuspage.compact > scrolledwindow > viewport > box > clamp > box > .icon {
   -gtk-icon-size: 48px;
 }
+
+/* A list view whose rows are separate cards, like `boxed-list-separate`. */
+listview.cards {
+  background: none;
+}
+
+listview.cards > row {
+  padding: 0;
+  margin-bottom: 6px;
+  border-radius: 12px;
+  background-color: var(--card-bg-color);
+  box-shadow: 0 0 0 1px var(--card-shade-color);
+}
+
+listview.cards > row:hover {
+  background-image: image(alpha(currentColor, 0.03));
+}
+
+listview.cards > row:active {
+  background-image: image(alpha(currentColor, 0.08));
+}
