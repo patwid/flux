@@ -390,22 +390,6 @@ impl Component for VideoPage {
             #[watch]
             set_reveal_top_bars: !model.fullscreen,
 
-            add_controller = gtk::EventControllerKey {
-                set_propagation_phase: gtk::PropagationPhase::Capture,
-                connect_key_pressed[sender] => move |_, key, _, modifiers| {
-                    if !modifiers.is_empty() {
-                        return gtk::glib::Propagation::Proceed;
-                    }
-                    let msg = match key {
-                        gtk::gdk::Key::Escape => PageMsg::LeaveFullscreen,
-                        gtk::gdk::Key::f => PageMsg::ToggleFullscreen,
-                        gtk::gdk::Key::space => PageMsg::TogglePlay,
-                        _ => return gtk::glib::Propagation::Proceed,
-                    };
-                    sender.input(msg);
-                    gtk::glib::Propagation::Stop
-                },
-            },
             add_top_bar = &adw::HeaderBar {
                 pack_end = &gtk::MenuButton {
                     set_icon_name: "folder-download-symbolic",
@@ -586,6 +570,7 @@ impl Component for VideoPage {
         let avatar = &model.avatar;
         let widgets = view_output!();
         add_actions(&root, &sender);
+        add_shortcuts(&root, &sender);
         add_layouts(&widgets.layouts);
         widgets.layouts.set_child("player", model.player.widget());
         widgets.layouts.set_child("details", &widgets.details);
@@ -795,6 +780,26 @@ fn add_actions(root: &adw::ToolbarView, sender: &ComponentSender<VideoPage>) {
     });
     actions.add_action(&download);
     root.insert_action_group("page", Some(&actions));
+}
+
+/// Adds the player's keyboard shortcuts to the page. They are handled after
+/// the focused widget, so that e.g. Space still activates a focused button.
+fn add_shortcuts(root: &adw::ToolbarView, sender: &ComponentSender<VideoPage>) {
+    let controller = gtk::ShortcutController::new();
+    let add = |trigger: &str, msg: fn() -> PageMsg| {
+        let input = sender.input_sender().clone();
+        controller.add_shortcut(gtk::Shortcut::new(
+            gtk::ShortcutTrigger::parse_string(trigger),
+            Some(gtk::CallbackAction::new(move |_, _| {
+                input.emit(msg());
+                gtk::glib::Propagation::Stop
+            })),
+        ));
+    };
+    add("space", || PageMsg::TogglePlay);
+    add("f", || PageMsg::ToggleFullscreen);
+    add("Escape", || PageMsg::LeaveFullscreen);
+    root.add_controller(controller);
 }
 
 /// Adds the layouts named by [`layout_name`], with slots for the player and
