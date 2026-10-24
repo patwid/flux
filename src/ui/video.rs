@@ -2,11 +2,22 @@
 
 use std::path::PathBuf;
 
+use relm4::adw::prelude::*;
+use relm4::{
+    Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmWidgetExt,
+    adw, gtk,
+};
+
+use super::player_view::{self, PlayerView};
+use super::{Services, format, log_db_error, widgets};
 use crate::core::model::{Channel, DownloadKind, PlaybackSource, Streams, Video, VideoDetails};
 use crate::core::streams;
 
 /// Highest resolution played by default.
 pub const MAX_HEIGHT: u32 = 720;
+
+/// Pages at least this wide scroll the player with the details.
+const WIDE_WIDTH_SP: f64 = 700.0;
 
 /// Seconds of playback between two history updates.
 const SAVE_INTERVAL_SECS: u32 = 5;
@@ -176,6 +187,390 @@ impl State {
         Effect::RecordWatch {
             video: self.video.clone(),
             position,
+        }
+    }
+}
+
+pub struct VideoPage {
+    state: State,
+    services: Services,
+    player: Controller<PlayerView>,
+    related: gtk::ListBox,
+    fullscreen: bool,
+    /// Whether the page is narrower than [`WIDE_WIDTH_SP`].
+    narrow: bool,
+    /// The window made fullscreen, to restore it when the page closes.
+    window: Option<gtk::Window>,
+}
+
+// Messages are moved rarely; boxing `Msg` would only add noise.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug)]
+pub enum PageMsg {
+    State(Msg),
+    ToggleFullscreen,
+    /// The page became narrower (true) or wider than [`WIDE_WIDTH_SP`].
+    Narrow(bool),
+}
+
+#[derive(Debug)]
+pub enum Output {
+    OpenVideo(Video),
+    OpenChannel(Channel),
+    Download(Video, DownloadKind),
+    SubscriptionsChanged,
+}
+
+#[relm4::component(pub)]
+impl Component for VideoPage {
+    type Init = (Services, Init);
+    type Input = PageMsg;
+    type Output = Output;
+    type CommandOutput = Msg;
+
+    view! {
+        adw::ToolbarView {
+            #[watch]
+            set_reveal_top_bars: !model.fullscreen,
+            add_top_bar = &adw::HeaderBar {},
+
+            #[wrap(Some)]
+            set_content = &adw::BreakpointBin {
+                set_width_request: 360,
+                set_height_request: 200,
+                add_breakpoint = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+                    adw::BreakpointConditionLengthType::MaxWidth,
+                    WIDE_WIDTH_SP,
+                    adw::LengthUnit::Sp,
+                )) {
+                    connect_apply => PageMsg::Narrow(true),
+                    connect_unapply => PageMsg::Narrow(false),
+                },
+
+                #[wrap(Some)]
+                set_child = &gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+
+                // Holds the player in the narrow and fullscreen layouts.
+                #[name = "fixed_slot"]
+                gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    #[watch]
+                    set_vexpand: model.fullscreen,
+                },
+
+                gtk::ScrolledWindow {
+                    set_vexpand: true,
+                    set_hscrollbar_policy: gtk::PolicyType::Never,
+                    #[watch]
+                    set_visible: !model.fullscreen,
+
+                    adw::Clamp {
+                        set_maximum_size: 1000,
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 12,
+                            set_margin_all: 12,
+
+                            // Holds the player in the wide layout.
+                            #[name = "scroll_slot"]
+                            gtk::Box {
+                                set_orientation: gtk::Orientation::Vertical,
+                                add_css_class: "card",
+                                set_overflow: gtk::Overflow::Hidden,
+                                #[watch]
+                                set_visible: !model.narrow && !model.fullscreen,
+                            },
+
+                            gtk::Label {
+                                add_css_class: "title-3",
+                                set_wrap: true,
+                                set_xalign: 0.0,
+                                #[watch]
+                                set_label: &model.state.video.title,
+                            },
+
+                            gtk::Label {
+                                add_css_class: "dimmed",
+                                set_xalign: 0.0,
+                                set_wrap: true,
+                                #[watch]
+                                set_label: &match &model.state.details {
+                                    Load::Loaded(d) => format::details_meta(d),
+                                    Load::Loading => "Loading…".into(),
+                                    Load::Failed(e) => format!("Cannot load details: {e}"),
+                                },
+                            },
+
+                            gtk::ListBox {
+                                add_css_class: "boxed-list",
+                                set_selection_mode: gtk::SelectionMode::None,
+                                connect_row_activated[sender] => move |_, _| {
+                                    sender.input(PageMsg::State(Msg::OpenChannel));
+                                },
+
+                                adw::ActionRow {
+                                    set_activatable: true,
+                                    set_use_markup: false,
+                                    #[watch]
+                                    set_title: &model.state.video.channel_name,
+                                    add_prefix = &gtk::Image::from_icon_name("avatar-default-symbolic"),
+
+                                    add_suffix = &gtk::Button {
+                                        set_valign: gtk::Align::Center,
+                                        #[watch]
+                                        set_label: if model.state.subscribed { "Unsubscribe" } else { "Subscribe" },
+                                        #[watch]
+                                        set_css_classes: if model.state.subscribed { &[] } else { &["suggested-action"] },
+                                        #[watch]
+                                        set_sensitive: matches!(model.state.details, Load::Loaded(_)),
+                                        connect_clicked => PageMsg::State(Msg::ToggleSubscribe),
+                                    },
+                                },
+                            },
+
+                            gtk::Box {
+                                set_spacing: 6,
+
+                                gtk::MenuButton {
+                                    set_icon_name: "folder-download-symbolic",
+                                    set_tooltip_text: Some("Download"),
+                                    add_css_class: "circular",
+
+                                    #[wrap(Some)]
+                                    set_popover: download_popover = &gtk::Popover {
+                                        gtk::Box {
+                                            set_orientation: gtk::Orientation::Vertical,
+
+                                            gtk::Button {
+                                                set_label: "Download Video",
+                                                add_css_class: "flat",
+                                                connect_clicked[sender, download_popover] => move |_| {
+                                                    download_popover.popdown();
+                                                    sender.input(PageMsg::State(Msg::Download(DownloadKind::Video)));
+                                                },
+                                            },
+                                            gtk::Button {
+                                                set_label: "Download Audio",
+                                                add_css_class: "flat",
+                                                connect_clicked[sender, download_popover] => move |_| {
+                                                    download_popover.popdown();
+                                                    sender.input(PageMsg::State(Msg::Download(DownloadKind::Audio)));
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+
+                            gtk::Expander {
+                                set_label: Some("Description"),
+                                #[watch]
+                                set_visible: matches!(&model.state.details, Load::Loaded(d) if !d.description.is_empty()),
+
+                                gtk::Label {
+                                    set_wrap: true,
+                                    set_xalign: 0.0,
+                                    set_selectable: true,
+                                    set_margin_top: 6,
+                                    #[watch]
+                                    set_label: match &model.state.details {
+                                        Load::Loaded(d) => &d.description,
+                                        _ => "",
+                                    },
+                                },
+                            },
+
+                            gtk::Label {
+                                set_label: "Related Videos",
+                                add_css_class: "heading",
+                                set_xalign: 0.0,
+                                #[watch]
+                                set_visible: matches!(&model.state.details, Load::Loaded(d) if !d.related.is_empty()),
+                            },
+
+                            #[local_ref]
+                            related -> gtk::ListBox {
+                                connect_row_activated[sender] => move |_, row| {
+                                    sender.input(PageMsg::State(Msg::OpenRelated(row.index() as usize)));
+                                },
+                            },
+                        },
+                    },
+                },
+                },
+            },
+        }
+    }
+
+    fn init(
+        (services, init): Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let (state, effects) = State::new(init);
+        let player =
+            PlayerView::builder()
+                .launch(())
+                .forward(sender.input_sender(), |out| match out {
+                    player_view::Output::Progress(p) => PageMsg::State(Msg::Progress(p)),
+                    player_view::Output::ToggleFullscreen => PageMsg::ToggleFullscreen,
+                });
+        let model = VideoPage {
+            state,
+            services,
+            player,
+            related: widgets::boxed_list(),
+            fullscreen: false,
+            narrow: false,
+            window: None,
+        };
+        let related = &model.related;
+        let widgets = view_output!();
+        model.place_player(&widgets);
+        model.run(effects, &sender);
+        ComponentParts { model, widgets }
+    }
+
+    fn update_with_view(
+        &mut self,
+        widgets: &mut Self::Widgets,
+        msg: PageMsg,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
+        match msg {
+            PageMsg::State(msg) => {
+                let details = matches!(msg, Msg::Details(_));
+                let streams = matches!(msg, Msg::Streams(_));
+                let effects = self.state.update(msg);
+                self.run(effects, &sender);
+                if details {
+                    self.fill_related();
+                }
+                if streams && let Load::Failed(e) = &self.state.playback {
+                    self.player.emit(player_view::Msg::Fail(e.clone()));
+                }
+            }
+            PageMsg::Narrow(narrow) => {
+                self.narrow = narrow;
+                self.place_player(widgets);
+            }
+            PageMsg::ToggleFullscreen => {
+                self.fullscreen = !self.fullscreen;
+                self.place_player(widgets);
+                self.window = root.root().and_downcast::<gtk::Window>();
+                if let Some(window) = &self.window {
+                    window.set_fullscreened(self.fullscreen);
+                }
+            }
+        }
+        self.update_view(widgets, sender);
+    }
+
+    /// Called when the page is closed: saves the playback position.
+    fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: relm4::Sender<Output>) {
+        let position = self.player.model().position_secs();
+        for effect in self.state.update(Msg::Closed(position)) {
+            if let Effect::RecordWatch { video, position } = effect {
+                log_db_error(
+                    self.services
+                        .db
+                        .record_watch(&video, position, chrono::Utc::now()),
+                );
+            }
+        }
+        if self.fullscreen
+            && let Some(window) = &self.window
+        {
+            window.set_fullscreened(false);
+        }
+    }
+
+    fn update_cmd_with_view(
+        &mut self,
+        widgets: &mut Self::Widgets,
+        msg: Msg,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
+        self.update_with_view(widgets, PageMsg::State(msg), sender, root);
+    }
+}
+
+impl VideoPage {
+    /// Puts the player above the scrolled details (narrow, fullscreen) or
+    /// into them (wide).
+    fn place_player(&self, widgets: &VideoPageWidgets) {
+        let player = self.player.widget();
+        let slot = if self.narrow || self.fullscreen {
+            &widgets.fixed_slot
+        } else {
+            &widgets.scroll_slot
+        };
+        if player.parent().as_ref() != Some(slot.upcast_ref()) {
+            if let Some(parent) = player.parent().and_downcast::<gtk::Box>() {
+                parent.remove(player);
+            }
+            slot.append(player);
+        }
+        player.set_vexpand(self.fullscreen);
+    }
+
+    fn run(&self, effects: Vec<Effect>, sender: &ComponentSender<Self>) {
+        for effect in effects {
+            match effect {
+                Effect::LoadDetails(id) => {
+                    let backend = self.services.backend.clone();
+                    sender.oneshot_command(async move {
+                        Msg::Details(backend.video_details(&id).await.map_err(|e| e.to_string()))
+                    });
+                }
+                Effect::LoadStreams(id) => {
+                    let backend = self.services.backend.clone();
+                    sender.oneshot_command(async move {
+                        Msg::Streams(backend.streams(&id).await.map_err(|e| e.to_string()))
+                    });
+                }
+                Effect::Play { source, start_at } => {
+                    self.player
+                        .emit(player_view::Msg::Load { source, start_at });
+                }
+                Effect::RecordWatch { video, position } => {
+                    log_db_error(self.services.db.record_watch(
+                        &video,
+                        position,
+                        chrono::Utc::now(),
+                    ));
+                }
+                Effect::Subscribe(channel) => {
+                    log_db_error(self.services.db.subscribe(&channel));
+                    let _ = sender.output(Output::SubscriptionsChanged);
+                }
+                Effect::Unsubscribe(id) => {
+                    log_db_error(self.services.db.unsubscribe(&id));
+                    let _ = sender.output(Output::SubscriptionsChanged);
+                }
+                Effect::Download(video, kind) => {
+                    let _ = sender.output(Output::Download(video, kind));
+                }
+                Effect::OpenVideo(video) => {
+                    let _ = sender.output(Output::OpenVideo(video));
+                }
+                Effect::OpenChannel(channel) => {
+                    let _ = sender.output(Output::OpenChannel(channel));
+                }
+            }
+        }
+    }
+
+    fn fill_related(&self) {
+        self.related.remove_all();
+        if let Load::Loaded(details) = &self.state.details {
+            for video in &details.related {
+                self.related.append(&widgets::video_row(video));
+            }
         }
     }
 }

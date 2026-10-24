@@ -1,29 +1,57 @@
-use std::sync::Arc;
-
 use relm4::adw::prelude::*;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, adw, gtk,
 };
 
 use super::search::{self, SearchPage};
-use crate::core::backend::Backend;
+use super::video::{self, VideoPage};
+use super::{Services, log_db_error};
+use crate::core::model::{Channel, DownloadKind, Video};
 
 /// Windows narrower than this use the mobile layout (bottom view switcher).
 const NARROW_WIDTH_SP: f64 = 550.0;
 
 pub struct App {
+    services: Services,
     search: Controller<SearchPage>,
     toasts: adw::ToastOverlay,
+    navigation: adw::NavigationView,
+    /// Pages pushed onto the navigation view, kept alive while shown.
+    pages: Vec<(adw::NavigationPage, Controller<VideoPage>)>,
 }
 
 #[derive(Debug)]
 pub enum Msg {
-    Search(search::Output),
+    OpenVideo(Video),
+    OpenChannel(Channel),
+    Download(Video, DownloadKind),
+    SubscriptionsChanged,
+    Popped(adw::NavigationPage),
+}
+
+impl From<search::Output> for Msg {
+    fn from(out: search::Output) -> Self {
+        match out {
+            search::Output::OpenVideo(v) => Msg::OpenVideo(v),
+            search::Output::OpenChannel(c) => Msg::OpenChannel(c),
+        }
+    }
+}
+
+impl From<video::Output> for Msg {
+    fn from(out: video::Output) -> Self {
+        match out {
+            video::Output::OpenVideo(v) => Msg::OpenVideo(v),
+            video::Output::OpenChannel(c) => Msg::OpenChannel(c),
+            video::Output::Download(v, kind) => Msg::Download(v, kind),
+            video::Output::SubscriptionsChanged => Msg::SubscriptionsChanged,
+        }
+    }
 }
 
 #[relm4::component(pub)]
 impl Component for App {
-    type Init = Arc<dyn Backend>;
+    type Init = Services;
     type Input = Msg;
     type Output = ();
     type CommandOutput = ();
@@ -38,25 +66,42 @@ impl Component for App {
 
             #[local_ref]
             toasts -> adw::ToastOverlay {
-                #[name = "layouts"]
-                adw::MultiLayoutView {},
+                #[local_ref]
+                navigation -> adw::NavigationView {
+                    connect_popped[sender] => move |_, page| {
+                        sender.input(Msg::Popped(page.clone()));
+                    },
+
+                    adw::NavigationPage {
+                        set_title: "Flux",
+                        set_tag: Some("main"),
+
+                        #[name = "layouts"]
+                        adw::MultiLayoutView {},
+                    },
+                },
             },
         }
     }
 
     fn init(
-        backend: Self::Init,
+        services: Self::Init,
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        relm4::set_global_css(include_str!("style.css"));
         let search = SearchPage::builder()
-            .launch(backend)
-            .forward(sender.input_sender(), Msg::Search);
+            .launch(services.backend.clone())
+            .forward(sender.input_sender(), Msg::from);
         let model = App {
+            services,
             search,
             toasts: adw::ToastOverlay::new(),
+            navigation: adw::NavigationView::new(),
+            pages: Vec::new(),
         };
         let toasts = &model.toasts;
+        let navigation = &model.navigation;
         let widgets = view_output!();
 
         let stack = adw::ViewStack::new();
@@ -105,21 +150,43 @@ impl Component for App {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Msg, _sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            Msg::Search(search::Output::OpenVideo(v)) => {
-                self.toasts.add_toast(adw::Toast::new(&format!(
-                    "Playback not implemented yet: {}",
-                    v.title
-                )));
+            Msg::OpenVideo(video) => self.open_video(video, &sender),
+            Msg::OpenChannel(c) => {
+                self.toast(&format!("Channels not implemented yet: {}", c.name));
             }
-            Msg::Search(search::Output::OpenChannel(c)) => {
-                self.toasts.add_toast(adw::Toast::new(&format!(
-                    "Channels not implemented yet: {}",
-                    c.name
-                )));
+            Msg::Download(v, _) => {
+                self.toast(&format!("Downloads not implemented yet: {}", v.title));
             }
+            Msg::SubscriptionsChanged => {}
+            Msg::Popped(page) => self.pages.retain(|(p, _)| *p != page),
         }
+    }
+}
+
+impl App {
+    fn toast(&self, text: &str) {
+        self.toasts.add_toast(adw::Toast::new(text));
+    }
+
+    fn open_video(&mut self, video: Video, sender: &ComponentSender<Self>) {
+        let db = &self.services.db;
+        let init = video::Init {
+            saved_position: log_db_error(db.resume_position(&video.id)).flatten(),
+            local_file: log_db_error(db.completed_download(&video.id))
+                .flatten()
+                .map(|d| d.path),
+            subscribed: log_db_error(db.is_subscribed(&video.channel_id)).unwrap_or(false),
+            video,
+        };
+        let title = init.video.title.clone();
+        let controller = VideoPage::builder()
+            .launch((self.services.clone(), init))
+            .forward(sender.input_sender(), Msg::from);
+        let page = adw::NavigationPage::new(controller.widget(), &title);
+        self.navigation.push(&page);
+        self.pages.push((page, controller));
     }
 }
 

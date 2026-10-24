@@ -5,7 +5,7 @@ use std::sync::Arc;
 use relm4::adw::prelude::*;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
-use super::format;
+use super::widgets;
 use crate::core::backend::Backend;
 use crate::core::model::{Channel, SearchItem, Video};
 
@@ -117,7 +117,11 @@ impl Component for SearchPage {
                     connect_search_changed[sender] => move |e| {
                         sender.input(Msg::QueryChanged(e.text().into()));
                     },
-                    connect_activate => Msg::Submit,
+                    // `search-changed` is delayed; submit what is typed right now.
+                    connect_activate[sender] => move |e| {
+                        sender.input(Msg::QueryChanged(e.text().into()));
+                        sender.input(Msg::Submit);
+                    },
                 },
             },
 
@@ -164,9 +168,6 @@ impl Component for SearchPage {
 
                         #[local_ref]
                         results -> gtk::ListBox {
-                            add_css_class: "boxed-list",
-                            set_selection_mode: gtk::SelectionMode::None,
-                            set_valign: gtk::Align::Start,
                             connect_row_activated[sender] => move |_, row| {
                                 sender.input(Msg::Activate(row.index() as usize));
                             },
@@ -185,7 +186,7 @@ impl Component for SearchPage {
         let model = SearchPage {
             state: State::default(),
             backend,
-            results: gtk::ListBox::new(),
+            results: widgets::boxed_list(),
         };
         let results = &model.results;
         let widgets = view_output!();
@@ -226,20 +227,9 @@ impl SearchPage {
             return;
         };
         for item in items {
-            let row = adw::ActionRow::builder()
-                .activatable(true)
-                .use_markup(false)
-                .title_lines(2);
             let row = match item {
-                SearchItem::Video(v) => row
-                    .title(&v.title)
-                    .subtitle(format::video_subtitle(v))
-                    .build(),
-                SearchItem::Channel(c) => {
-                    let row = row.title(&c.name).subtitle("Channel").build();
-                    row.add_prefix(&gtk::Image::from_icon_name("avatar-default-symbolic"));
-                    row
-                }
+                SearchItem::Video(v) => widgets::video_row(v),
+                SearchItem::Channel(c) => widgets::channel_row(c),
             };
             self.results.append(&row);
         }
