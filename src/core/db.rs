@@ -5,7 +5,9 @@ use chrono::{DateTime, Utc};
 
 use std::path::Path;
 
-use super::model::{Channel, Download, DownloadKind, DownloadStatus, HistoryEntry, Video};
+use super::model::{
+    Channel, Download, DownloadKind, DownloadStatus, HistoryEntry, SubtitleTrack, Video,
+};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -24,6 +26,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../../migrations/002_history.sql")),
         M::up(include_str!("../../migrations/003_downloads.sql")),
         M::up(include_str!("../../migrations/004_feed.sql")),
+        M::up(include_str!("../../migrations/005_download_subtitles.sql")),
     ])
 }
 
@@ -296,9 +299,53 @@ impl Db {
             .pop())
     }
 
+    /// Records the subtitle files saved with a download.
+    pub fn set_download_subtitles(&self, id: i64, tracks: &[SubtitleTrack]) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM download_subtitles WHERE download_id = ?1",
+            [id],
+        )?;
+        for (position, track) in tracks.iter().enumerate() {
+            self.conn.execute(
+                "INSERT INTO download_subtitles (download_id, position, name, lang, url, auto_generated)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                (
+                    id,
+                    position as i64,
+                    &track.name,
+                    &track.lang,
+                    &track.url,
+                    track.auto_generated,
+                ),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// The subtitle files saved with a download, in their original order.
+    pub fn download_subtitles(&self, id: i64) -> Result<Vec<SubtitleTrack>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, lang, url, auto_generated FROM download_subtitles
+             WHERE download_id = ?1 ORDER BY position",
+        )?;
+        let rows = stmt.query_map([id], |row| {
+            Ok(SubtitleTrack {
+                name: row.get(0)?,
+                lang: row.get(1)?,
+                url: row.get(2)?,
+                auto_generated: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn remove_download(&self, id: i64) -> Result<()> {
         self.conn
             .execute("DELETE FROM downloads WHERE id = ?1", [id])?;
+        self.conn.execute(
+            "DELETE FROM download_subtitles WHERE download_id = ?1",
+            [id],
+        )?;
         Ok(())
     }
 
@@ -602,6 +649,38 @@ mod tests {
         db.set_download_status(id, &DownloadStatus::Completed)
             .unwrap();
         assert_eq!(db.completed_download("a").unwrap().map(|d| d.id), Some(id));
+    }
+
+    #[test]
+    fn download_subtitles_are_stored_and_removed_with_the_download() {
+        let db = Db::open_in_memory().unwrap();
+        let add = |id| {
+            db.add_download(
+                &video(id),
+                DownloadKind::Video,
+                Path::new("/d/a.mp4"),
+                at(1),
+            )
+            .unwrap()
+        };
+        let (a, b) = (add("a"), add("b"));
+        let track = |lang: &str, auto_generated| SubtitleTrack {
+            name: format!("Name {lang}"),
+            lang: lang.into(),
+            url: format!("file:///d/a.{lang}.vtt"),
+            auto_generated,
+        };
+        let tracks = [track("en", false), track("de", true)];
+        db.set_download_subtitles(a, &tracks).unwrap();
+        db.set_download_subtitles(b, &tracks[..1]).unwrap();
+
+        assert_eq!(db.download_subtitles(a).unwrap(), tracks);
+        db.set_download_subtitles(a, &tracks[1..]).unwrap();
+        assert_eq!(db.download_subtitles(a).unwrap(), tracks[1..], "replaced");
+
+        db.remove_download(a).unwrap();
+        assert!(db.download_subtitles(a).unwrap().is_empty());
+        assert_eq!(db.download_subtitles(b).unwrap().len(), 1);
     }
 
     #[test]
