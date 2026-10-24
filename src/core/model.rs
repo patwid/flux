@@ -86,3 +86,21 @@ pub struct Streams {
     /// HLS manifest, present for live streams.
     pub hls_url: Option<String>,
 }
+
+/// An item in search results.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchItem {
+    Video(Video),
+    Channel(Channel),
+}
+
+/// Full information about a video, shown on its detail page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VideoDetails {
+    pub video: Video,
+    pub channel: Channel,
+    pub description: String,
+    pub view_count: Option<u64>,
+    pub like_count: Option<u32>,
+    pub related: Vec<Video>,
+}
