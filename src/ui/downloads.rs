@@ -35,11 +35,35 @@ pub enum Input {
     Activate(usize),
 }
 
+#[derive(Debug)]
+pub enum Output {
+    OpenVideo(Video),
+    /// A download finished.
+    Completed(Video),
+    /// A download failed; it can be retried with [`Msg::Retry`].
+    Failed {
+        id: i64,
+        video: Video,
+    },
+}
+
+/// What to report about a download that just finished, if anything.
+pub fn finished(download: &Download) -> Option<Output> {
+    match download.status {
+        DownloadStatus::Completed => Some(Output::Completed(download.video.clone())),
+        DownloadStatus::Failed(_) => Some(Output::Failed {
+            id: download.id,
+            video: download.video.clone(),
+        }),
+        _ => None,
+    }
+}
+
 #[relm4::component(pub)]
 impl Component for DownloadsPage {
     type Init = Services;
     type Input = Input;
-    type Output = Video;
+    type Output = Output;
     type CommandOutput = ();
 
     view! {
@@ -102,6 +126,7 @@ impl Component for DownloadsPage {
     }
 
     fn update(&mut self, input: Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+        let mut finished_id = None;
         let msg = match input {
             Input::Queue(msg) => msg,
             Input::Finished { id, result } => {
@@ -109,6 +134,7 @@ impl Component for DownloadsPage {
                     self.saved_subtitles.insert(id, saved.subtitles);
                     saved.path
                 });
+                finished_id = Some(id);
                 Msg::Finished { id, result }
             }
             Input::Add(video, kind) => {
@@ -138,7 +164,7 @@ impl Component for DownloadsPage {
                 if let Some(d) = self.queue.downloads.get(index)
                     && d.status == DownloadStatus::Completed
                 {
-                    let _ = sender.output(d.video.clone());
+                    let _ = sender.output(Output::OpenVideo(d.video.clone()));
                 }
                 return;
             }
@@ -153,6 +179,12 @@ impl Component for DownloadsPage {
             self.run(effect, &sender);
         }
         self.fill(&sender);
+        if let Some(output) = finished_id
+            .and_then(|id| self.queue.downloads.iter().find(|d| d.id == id))
+            .and_then(finished)
+        {
+            let _ = sender.output(output);
+        }
     }
 }
 
@@ -260,5 +292,43 @@ impl DownloadsPage {
         };
         let progress = self.queue.progress.get(&id).copied();
         row.set_subtitle(&format::download_status(download, progress));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn download(status: DownloadStatus) -> Download {
+        Download {
+            id: 7,
+            video: Video {
+                id: "v".into(),
+                title: "t".into(),
+                channel_id: "UC1".into(),
+                channel_name: "Chan".into(),
+                published: None,
+                duration_secs: None,
+                thumbnail_url: None,
+            },
+            kind: DownloadKind::Video,
+            path: "/tmp/t.webm".into(),
+            status,
+            created_at: chrono::DateTime::from_timestamp(0, 0).unwrap(),
+        }
+    }
+
+    #[test]
+    fn finished_downloads_are_reported() {
+        let video = download(DownloadStatus::Completed).video;
+        assert!(matches!(
+            finished(&download(DownloadStatus::Completed)),
+            Some(Output::Completed(v)) if v == video
+        ));
+        assert!(matches!(
+            finished(&download(DownloadStatus::Failed("offline".into()))),
+            Some(Output::Failed { id: 7, video: v }) if v == video
+        ));
+        assert!(finished(&download(DownloadStatus::Running)).is_none());
     }
 }

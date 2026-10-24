@@ -13,6 +13,7 @@ use super::search::{self, SearchPage};
 use super::subscriptions::{self, SubscriptionsPage};
 use super::video::{self, VideoPage};
 use super::{Services, log_db_error};
+use crate::core::download;
 use crate::core::model::{Channel, Comment, DownloadKind, HistoryEntry, Video};
 
 /// Windows narrower than this use the mobile layout (bottom view switcher).
@@ -48,6 +49,10 @@ pub enum Msg {
     SubscriptionsChanged,
     OpenReplies(Comment),
     Popped(adw::NavigationPage),
+    /// Offers to play a finished download.
+    DownloadCompleted(Video),
+    /// Offers to retry the failed download with this id.
+    DownloadFailed(i64, Video),
     /// Offers to undo removing this entry from the history.
     RemovedFromHistory(HistoryEntry),
     /// Shows the search section with its entry focused.
@@ -70,6 +75,16 @@ impl From<history::Output> for Msg {
         match out {
             history::Output::OpenVideo(v) => Msg::OpenVideo(v),
             history::Output::Removed(entry) => Msg::RemovedFromHistory(entry),
+        }
+    }
+}
+
+impl From<downloads::Output> for Msg {
+    fn from(out: downloads::Output) -> Self {
+        match out {
+            downloads::Output::OpenVideo(v) => Msg::OpenVideo(v),
+            downloads::Output::Completed(v) => Msg::DownloadCompleted(v),
+            downloads::Output::Failed { id, video } => Msg::DownloadFailed(id, video),
         }
     }
 }
@@ -150,7 +165,7 @@ impl Component for App {
             .forward(sender.input_sender(), Msg::from);
         let downloads = DownloadsPage::builder()
             .launch(services.clone())
-            .forward(sender.input_sender(), Msg::OpenVideo);
+            .forward(sender.input_sender(), Msg::from);
         let model = App {
             services,
             feed,
@@ -246,6 +261,26 @@ impl Component for App {
                 // Dropping a video page saves its position to the history.
                 self.pages.retain(|(p, _)| *p != page);
                 self.history.emit(history::Input::Reload);
+            }
+            Msg::DownloadCompleted(video) => {
+                let toast = adw::Toast::builder()
+                    .title(format!("Downloaded “{}”", video.title))
+                    .button_label("_Play")
+                    .build();
+                let input = sender.input_sender().clone();
+                toast.connect_button_clicked(move |_| input.emit(Msg::OpenVideo(video.clone())));
+                self.toasts.add_toast(toast);
+            }
+            Msg::DownloadFailed(id, video) => {
+                let toast = adw::Toast::builder()
+                    .title(format!("Cannot download “{}”", video.title))
+                    .button_label("_Retry")
+                    .build();
+                let downloads = self.downloads.sender().clone();
+                toast.connect_button_clicked(move |_| {
+                    downloads.emit(downloads::Input::Queue(download::Msg::Retry(id)));
+                });
+                self.toasts.add_toast(toast);
             }
             Msg::RemovedFromHistory(entry) => {
                 let toast = adw::Toast::builder()
