@@ -14,8 +14,8 @@ use crate::core::model::{
     Channel, Comment, CommentPage, DownloadKind, PlaybackSource, Streams, SubtitleTrack, Video,
     VideoDetails,
 };
-use crate::core::streams;
 use crate::core::subtitles::{self, Cue};
+use crate::core::{backend, streams};
 
 use crate::core::streams::DEFAULT_MAX_HEIGHT as MAX_HEIGHT;
 
@@ -77,6 +77,8 @@ pub struct Init {
     pub saved_position: Option<u32>,
     /// A completed download to play instead of streaming.
     pub local_file: Option<PathBuf>,
+    /// Subtitles saved with `local_file`.
+    pub local_subtitles: Vec<SubtitleTrack>,
     pub subscribed: bool,
     /// The language of the subtitles to show, if the user wants any.
     pub subtitle_language: Option<String>,
@@ -170,7 +172,10 @@ impl State {
             .local_file
             .and_then(|path| url::Url::from_file_path(path).ok());
         match local_uri {
-            Some(uri) => effects.extend(state.play(PlaybackSource::Uri(uri.into()))),
+            Some(uri) => {
+                effects.extend(state.play(PlaybackSource::Uri(uri.into())));
+                effects.extend(state.offer_subtitles(init.local_subtitles));
+            }
             None => effects.push(Effect::LoadStreams(state.video.id.clone())),
         }
         (state, effects)
@@ -800,7 +805,9 @@ impl VideoPage {
                 Effect::LoadSubtitles { index, url } => {
                     let backend = self.services.backend.clone();
                     sender.oneshot_command(async move {
-                        let cues = backend.subtitles(&url).await.map_err(|e| e.to_string());
+                        let cues = backend::load_subtitles(backend.as_ref(), &url)
+                            .await
+                            .map_err(|e| e.to_string());
                         Msg::Subtitles(index, cues)
                     });
                 }
@@ -912,6 +919,7 @@ mod tests {
             local_file: None,
             subscribed: false,
             subtitle_language: None,
+            local_subtitles: vec![],
         }
     }
 
@@ -990,6 +998,30 @@ mod tests {
             ]
         );
         assert_eq!(state.playback, Load::Loaded(source));
+    }
+
+    #[test]
+    fn downloaded_video_offers_saved_subtitles() {
+        let (state, effects) = State::new(Init {
+            local_file: Some("/videos/v.mp4".into()),
+            local_subtitles: vec![track("en"), track("de")],
+            subtitle_language: Some("de".into()),
+            ..init()
+        });
+        assert_eq!(
+            effects[3..],
+            [
+                Effect::ShowSubtitleTracks {
+                    names: vec!["EN".into(), "DE".into()],
+                    selected: Some(1),
+                },
+                Effect::LoadSubtitles {
+                    index: 1,
+                    url: "https://subs/de".into()
+                },
+            ]
+        );
+        assert_eq!(state.subtitles.selected, Some(1));
     }
 
     #[test]

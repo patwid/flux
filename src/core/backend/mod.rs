@@ -7,7 +7,10 @@ pub mod visionos;
 use async_trait::async_trait;
 
 use super::feed;
-use super::model::{Channel, CommentPage, DownloadKind, SearchItem, Streams, Video, VideoDetails};
+use super::model::{
+    Channel, CommentPage, DownloadKind, SavedDownload, SearchItem, Streams, SubtitleTrack, Video,
+    VideoDetails,
+};
 use super::subtitles::Cue;
 
 #[derive(Debug, thiserror::Error)]
@@ -46,15 +49,40 @@ pub type ProgressFn = Box<dyn Fn(f64) + Send + Sync>;
 
 #[async_trait]
 pub trait Downloader: Send + Sync {
-    /// Downloads a video to `path` and returns the path actually written
-    /// (the extension may differ).
+    /// Downloads a video to `path` (the extension may differ), with its
+    /// subtitles if it is a video download.
     async fn download(
         &self,
         video_id: &str,
         kind: DownloadKind,
         path: &std::path::Path,
         progress: ProgressFn,
-    ) -> Result<std::path::PathBuf>;
+    ) -> Result<SavedDownload>;
+}
+
+/// The cues of a subtitle track, read from disk for `file://` URLs
+/// (saved with a download) and fetched by `backend` otherwise.
+pub async fn load_subtitles(backend: &dyn Backend, url: &str) -> Result<Vec<Cue>> {
+    match url::Url::parse(url)
+        .ok()
+        .and_then(|u| u.to_file_path().ok())
+    {
+        Some(path) => {
+            let vtt = tokio::fs::read_to_string(path).await?;
+            Ok(super::subtitles::parse_vtt(&vtt))
+        }
+        None => backend.subtitles(url).await,
+    }
+}
+
+/// `track` as saved at `path`.
+pub fn saved_track(track: &SubtitleTrack, path: &std::path::Path) -> Result<SubtitleTrack> {
+    let url = url::Url::from_file_path(path)
+        .map_err(|()| BackendError::Other(format!("not an absolute path: {}", path.display())))?;
+    Ok(SubtitleTrack {
+        url: url.into(),
+        ..track.clone()
+    })
 }
 
 /// The result of refreshing the subscription feed.
@@ -113,6 +141,34 @@ mod tests {
         let ids: Vec<_> = refresh.videos.iter().map(|v| v.id.as_str()).collect();
         assert_eq!(ids, ["a2", "b1", "a1"]);
         assert!(refresh.errors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn load_subtitles_reads_local_files() {
+        let cue = |text: &str| Cue {
+            start: std::time::Duration::ZERO,
+            end: std::time::Duration::from_secs(1),
+            text: text.into(),
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.en.vtt");
+        std::fs::write(&path, crate::core::subtitles::to_vtt(&[cue("local")])).unwrap();
+        let backend = FakeBackend::default().with_subtitles("https://subs", vec![cue("remote")]);
+
+        let local = url::Url::from_file_path(&path).unwrap();
+        assert_eq!(
+            load_subtitles(&backend, local.as_str()).await.unwrap(),
+            [cue("local")]
+        );
+        assert_eq!(
+            load_subtitles(&backend, "https://subs").await.unwrap(),
+            [cue("remote")]
+        );
+        assert!(
+            load_subtitles(&backend, "file:///missing.vtt")
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

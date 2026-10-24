@@ -8,8 +8,8 @@ use rustypipe::model::{self as rp, richtext::ToPlaintext};
 use super::{Backend, BackendError, Downloader, ProgressFn, Result, visionos};
 use crate::core::model::SegmentRanges;
 use crate::core::model::{
-    AudioStream, Channel, Comment, CommentPage, DownloadKind, SearchItem, Streams, SubtitleTrack,
-    Video, VideoDetails, VideoStream,
+    AudioStream, Channel, Comment, CommentPage, DownloadKind, SavedDownload, SearchItem, Streams,
+    SubtitleTrack, Video, VideoDetails, VideoStream,
 };
 use crate::core::streams::DEFAULT_MAX_HEIGHT;
 use crate::core::subtitles::{self, Cue};
@@ -179,7 +179,7 @@ impl Downloader for RustyPipeBackend {
         kind: DownloadKind,
         path: &std::path::Path,
         progress: ProgressFn,
-    ) -> Result<std::path::PathBuf> {
+    ) -> Result<SavedDownload> {
         let streams = self.streams(video_id).await?;
         let plan = download::plan(&streams, kind, DEFAULT_MAX_HEIGHT)
             .ok_or_else(|| BackendError::Other("no downloadable stream".into()))?;
@@ -228,7 +228,46 @@ impl Downloader for RustyPipeBackend {
                 tokio::fs::rename(&audio_part, &output).await?;
             }
         }
-        Ok(output)
+        let subtitles = match kind {
+            DownloadKind::Video => self.save_subtitles(&streams.subtitles, &output).await,
+            DownloadKind::Audio => Vec::new(),
+        };
+        Ok(SavedDownload {
+            path: output,
+            subtitles,
+        })
+    }
+}
+
+impl RustyPipeBackend {
+    /// Saves `tracks` next to the video at `video`. A track that cannot be
+    /// saved is left out rather than failing the download.
+    async fn save_subtitles(
+        &self,
+        tracks: &[SubtitleTrack],
+        video: &std::path::Path,
+    ) -> Vec<SubtitleTrack> {
+        let mut saved = Vec::new();
+        for (track, path) in tracks.iter().zip(download::subtitle_paths(video, tracks)) {
+            let result = async {
+                let vtt = self
+                    .http
+                    .get(&track.url)
+                    .send()
+                    .await?
+                    .error_for_status()?
+                    .text()
+                    .await?;
+                tokio::fs::write(&path, vtt).await?;
+                super::saved_track(track, &path)
+            }
+            .await;
+            match result {
+                Ok(track) => saved.push(track),
+                Err(e) => eprintln!("flux: cannot save subtitles {}: {e}", track.name),
+            }
+        }
+        saved
     }
 }
 
@@ -656,7 +695,7 @@ mod tests {
         for (kind, ext) in [(DownloadKind::Video, "mp4"), (DownloadKind::Audio, "m4a")] {
             let last = std::sync::Arc::new(std::sync::Mutex::new(0.0));
             let progress = last.clone();
-            let path = backend
+            let saved = backend
                 .download(
                     "dQw4w9WgXcQ",
                     kind,
@@ -665,9 +704,16 @@ mod tests {
                 )
                 .await
                 .unwrap();
-            assert_eq!(path.extension().unwrap(), ext);
-            assert!(std::fs::metadata(&path).unwrap().len() > 1_000_000);
+            assert_eq!(saved.path.extension().unwrap(), ext);
+            assert!(std::fs::metadata(&saved.path).unwrap().len() > 1_000_000);
             assert_eq!(*last.lock().unwrap(), 1.0);
+            assert_eq!(saved.subtitles.is_empty(), kind == DownloadKind::Audio);
+            for track in &saved.subtitles {
+                let cues = super::super::load_subtitles(&backend, &track.url)
+                    .await
+                    .unwrap();
+                assert!(!cues.is_empty(), "{}", track.name);
+            }
         }
         let leftovers: Vec<_> = std::fs::read_dir(dir.path())
             .unwrap()

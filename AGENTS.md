@@ -17,7 +17,7 @@ contributing to the code, human or agent.
   2. **Playback**: play videos in-app, with quality selection, seeking and subtitles. Subtitles are off until the user picks a language, which is then remembered for later videos.
   3. **Subscriptions**: subscribe to channels and get an aggregated feed from RSS.
   4. **History**: keep a watch history with resume position, and let the user clear it.
-  5. **Download**: download videos or audio to disk, with progress and cancel. Downloaded items can be played offline.
+  5. **Download**: download videos or audio to disk, with progress and cancel. Downloaded items can be played offline. Video downloads include their subtitles, saved next to the video as `.vtt` files.
   6. **Comments**: show a video's top comments on its page, loaded page by page and only when the user opens them.
 
 ### Non-goals (v1)

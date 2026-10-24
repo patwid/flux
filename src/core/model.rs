@@ -56,6 +56,14 @@ pub struct Download {
     pub created_at: DateTime<Utc>,
 }
 
+/// The files written by a download.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedDownload {
+    pub path: PathBuf,
+    /// Subtitles saved next to the video, with `file://` URLs.
+    pub subtitles: Vec<SubtitleTrack>,
+}
+
 /// Byte ranges locating the initialization data and the segment index in a
 /// stream file, needed to stream it with DASH.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

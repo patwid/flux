@@ -226,11 +226,13 @@ impl App {
 
     fn open_video(&mut self, video: Video, sender: &ComponentSender<Self>) {
         let db = &self.services.db;
+        let download = log_db_error(db.completed_download(&video.id)).flatten();
         let init = video::Init {
             saved_position: log_db_error(db.resume_position(&video.id)).flatten(),
-            local_file: log_db_error(db.completed_download(&video.id))
-                .flatten()
-                .map(|d| d.path),
+            local_file: download.as_ref().map(|d| d.path.clone()),
+            local_subtitles: download
+                .and_then(|d| log_db_error(db.download_subtitles(d.id)))
+                .unwrap_or_default(),
             subscribed: log_db_error(db.is_subscribed(&video.channel_id)).unwrap_or(false),
             subtitle_language: log_db_error(db.subtitle_language()).flatten(),
             video,

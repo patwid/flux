@@ -7,7 +7,9 @@ use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk}
 
 use super::{Services, format, log_db_error, widgets};
 use crate::core::download::{self, Effect, MAX_PARALLEL, Msg, Queue};
-use crate::core::model::{Download, DownloadKind, DownloadStatus, Video};
+use crate::core::model::{
+    Download, DownloadKind, DownloadStatus, SavedDownload, SubtitleTrack, Video,
+};
 
 pub struct DownloadsPage {
     queue: Queue,
@@ -17,11 +19,18 @@ pub struct DownloadsPage {
     tasks: HashMap<i64, relm4::JoinHandle<()>>,
     /// Rows of the listed downloads, to update progress in place.
     rows: HashMap<i64, (adw::ActionRow, gtk::ProgressBar)>,
+    /// Subtitles saved by finished downloads, until they are completed.
+    saved_subtitles: HashMap<i64, Vec<SubtitleTrack>>,
 }
 
 #[derive(Debug)]
 pub enum Input {
     Queue(Msg),
+    /// A download task finished.
+    Finished {
+        id: i64,
+        result: Result<SavedDownload, String>,
+    },
     Add(Video, DownloadKind),
     Activate(usize),
 }
@@ -73,6 +82,7 @@ impl Component for DownloadsPage {
             list: widgets::boxed_list(),
             tasks: HashMap::new(),
             rows: HashMap::new(),
+            saved_subtitles: HashMap::new(),
         };
         let list = &model.list;
         let widgets = view_output!();
@@ -83,6 +93,13 @@ impl Component for DownloadsPage {
     fn update(&mut self, input: Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         let msg = match input {
             Input::Queue(msg) => msg,
+            Input::Finished { id, result } => {
+                let result = result.map(|saved| {
+                    self.saved_subtitles.insert(id, saved.subtitles);
+                    saved.path
+                });
+                Msg::Finished { id, result }
+            }
             Input::Add(video, kind) => {
                 let dir = &self.services.download_dir;
                 if let Err(e) = std::fs::create_dir_all(dir) {
@@ -149,7 +166,7 @@ impl DownloadsPage {
                         )
                         .await
                         .map_err(|e| e.to_string());
-                    let _ = input.send(Input::Queue(Msg::Finished { id, result }));
+                    let _ = input.send(Input::Finished { id, result });
                 });
                 self.tasks.insert(id, task);
             }
@@ -164,8 +181,20 @@ impl DownloadsPage {
             Effect::Complete { id, path } => {
                 self.tasks.remove(&id);
                 log_db_error(db.complete_download(id, &path));
+                let subtitles = self.saved_subtitles.remove(&id).unwrap_or_default();
+                log_db_error(db.set_download_subtitles(id, &subtitles));
             }
             Effect::Delete { id, path } => {
+                self.saved_subtitles.remove(&id);
+                let subtitles = log_db_error(db.download_subtitles(id)).unwrap_or_default();
+                for track in subtitles {
+                    if let Some(file) = url::Url::parse(&track.url)
+                        .ok()
+                        .and_then(|u| u.to_file_path().ok())
+                    {
+                        let _ = std::fs::remove_file(file);
+                    }
+                }
                 log_db_error(db.remove_download(id));
                 // The file may not exist yet (queued) or anymore.
                 let _ = std::fs::remove_file(path);

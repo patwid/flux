@@ -4,11 +4,12 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 
-use super::{Backend, BackendError, Downloader, ProgressFn, Result};
+use super::{Backend, BackendError, Downloader, ProgressFn, Result, saved_track};
 use crate::core::model::{
-    Channel, CommentPage, DownloadKind, SearchItem, Streams, Video, VideoDetails,
+    Channel, CommentPage, DownloadKind, SavedDownload, SearchItem, Streams, Video, VideoDetails,
 };
 use crate::core::subtitles::Cue;
+use crate::core::{download, subtitles};
 
 /// A backend serving canned data. Unknown ids yield an error.
 #[derive(Default)]
@@ -99,16 +100,16 @@ impl Backend for FakeBackend {
 }
 
 /// Downloads by copying the file behind the first muxed `file://` stream,
-/// reporting progress in steps.
+/// reporting progress in steps. Saves the subtitle tracks that have cues.
 #[async_trait]
 impl Downloader for FakeBackend {
     async fn download(
         &self,
         video_id: &str,
-        _kind: DownloadKind,
+        kind: DownloadKind,
         path: &std::path::Path,
         progress: ProgressFn,
-    ) -> Result<std::path::PathBuf> {
+    ) -> Result<SavedDownload> {
         let streams = lookup(&self.streams, video_id)?;
         let source = streams
             .muxed
@@ -122,7 +123,20 @@ impl Downloader for FakeBackend {
         }
         let path = path.with_extension(source.extension().unwrap_or_default());
         std::fs::copy(&source, &path).map_err(|e| BackendError::Other(e.to_string()))?;
-        Ok(path)
+        let mut saved = Vec::new();
+        if kind == DownloadKind::Video {
+            let tracks = &streams.subtitles;
+            for (track, file) in tracks.iter().zip(download::subtitle_paths(&path, tracks)) {
+                if let Some(cues) = self.subtitles.get(&track.url) {
+                    std::fs::write(&file, subtitles::to_vtt(cues))?;
+                    saved.push(saved_track(track, &file)?);
+                }
+            }
+        }
+        Ok(SavedDownload {
+            path,
+            subtitles: saved,
+        })
     }
 }
 
@@ -131,33 +145,45 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
-    use crate::core::model::VideoStream;
+    use crate::core::model::{SubtitleTrack, VideoStream};
+    use crate::core::subtitles::{self, Cue};
 
     #[tokio::test]
     async fn fake_download_copies_local_stream() {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("source.webm");
         std::fs::write(&source, b"video").unwrap();
-        let backend = FakeBackend::default().with_streams(
-            "v",
-            Streams {
-                muxed: vec![VideoStream {
-                    url: url::Url::from_file_path(&source).unwrap().into(),
-                    width: 1,
-                    height: 1,
-                    fps: 1,
-                    bitrate: 1,
-                    mime: "video/webm".into(),
-                    ranges: None,
-                    size: None,
-                }],
-                ..Default::default()
-            },
-        );
+        let backend = FakeBackend::default()
+            .with_streams(
+                "v",
+                Streams {
+                    muxed: vec![VideoStream {
+                        url: url::Url::from_file_path(&source).unwrap().into(),
+                        width: 1,
+                        height: 1,
+                        fps: 1,
+                        bitrate: 1,
+                        mime: "video/webm".into(),
+                        ranges: None,
+                        size: None,
+                    }],
+                    subtitles: ["en", "de"]
+                        .map(|lang| SubtitleTrack {
+                            name: lang.into(),
+                            lang: lang.into(),
+                            url: format!("https://subs/{lang}"),
+                            auto_generated: false,
+                        })
+                        .into(),
+                    ..Default::default()
+                },
+            )
+            // Only English loads.
+            .with_subtitles("https://subs/en", cues());
         let reported = Arc::new(Mutex::new(Vec::new()));
         let progress = reported.clone();
 
-        let path = backend
+        let saved = backend
             .download(
                 "v",
                 DownloadKind::Video,
@@ -167,8 +193,31 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(path, dir.path().join("out.webm"));
-        assert_eq!(std::fs::read(&path).unwrap(), b"video");
+        assert_eq!(saved.path, dir.path().join("out.webm"));
+        assert_eq!(std::fs::read(&saved.path).unwrap(), b"video");
         assert_eq!(reported.lock().unwrap().last(), Some(&1.0));
+
+        let vtt = dir.path().join("out.en.vtt");
+        assert_eq!(
+            saved.subtitles,
+            [SubtitleTrack {
+                name: "en".into(),
+                lang: "en".into(),
+                url: url::Url::from_file_path(&vtt).unwrap().into(),
+                auto_generated: false,
+            }]
+        );
+        assert_eq!(
+            subtitles::parse_vtt(&std::fs::read_to_string(vtt).unwrap()),
+            cues()
+        );
+    }
+
+    fn cues() -> Vec<Cue> {
+        vec![Cue {
+            start: std::time::Duration::ZERO,
+            end: std::time::Duration::from_secs(1),
+            text: "Hi".into(),
+        }]
     }
 }
