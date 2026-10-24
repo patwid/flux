@@ -1,3 +1,8 @@
 .player {
   background-color: black;
 }
+
+.thumbnail {
+  border-radius: 6px;
+  background-color: alpha(currentColor, 0.1);
+}

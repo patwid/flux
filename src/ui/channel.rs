@@ -4,7 +4,7 @@ use relm4::adw::prelude::*;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
 use super::video::Load;
-use super::{Services, log_db_error, widgets};
+use super::{Services, images, log_db_error, widgets};
 use crate::core::model::{Channel, Video};
 
 /// GTK-independent state of a channel page.
@@ -75,6 +75,7 @@ pub struct ChannelPage {
     state: State,
     services: Services,
     list: gtk::ListBox,
+    avatar: adw::Avatar,
 }
 
 #[derive(Debug)]
@@ -111,7 +112,8 @@ impl Component for ChannelPage {
                             set_spacing: 12,
                             set_margin_top: 12,
 
-                            adw::Avatar {
+                            #[local_ref]
+                            avatar -> adw::Avatar {
                                 set_size: 96,
                                 set_show_initials: true,
                                 #[watch]
@@ -180,8 +182,11 @@ impl Component for ChannelPage {
             state,
             services,
             list: widgets::boxed_list(),
+            avatar: adw::Avatar::default(),
         };
+        images::set_avatar(&model.avatar, model.state.channel.avatar_url.as_deref());
         let list = &model.list;
+        let avatar = &model.avatar;
         let widgets = view_output!();
         model.run(effects, &sender);
         ComponentParts { model, widgets }
@@ -192,6 +197,7 @@ impl Component for ChannelPage {
         let effects = self.state.update(msg);
         self.run(effects, &sender);
         if loaded {
+            images::set_avatar(&self.avatar, self.state.channel.avatar_url.as_deref());
             self.list.remove_all();
             if let Load::Loaded(videos) = &self.state.videos {
                 for video in videos {

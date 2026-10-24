@@ -36,6 +36,25 @@ fn test_video(path: &Path, pattern: &str) {
     pipeline.set_state(gst::State::Null).unwrap();
 }
 
+/// Renders a PNG thumbnail of a test pattern, unless it already exists.
+fn thumbnail(path: &Path, pattern: &str) {
+    if path.exists() {
+        return;
+    }
+    let description = format!(
+        "videotestsrc pattern={pattern} num-buffers=1 ! video/x-raw,width=320,height=180 \
+         ! pngenc ! filesink location={}",
+        path.display()
+    );
+    let pipeline = gst::parse::launch(&description).expect("valid pipeline");
+    pipeline.set_state(gst::State::Playing).unwrap();
+    pipeline.bus().unwrap().timed_pop_filtered(
+        gst::ClockTime::NONE,
+        &[gst::MessageType::Eos, gst::MessageType::Error],
+    );
+    pipeline.set_state(gst::State::Null).unwrap();
+}
+
 fn main() {
     gst::init().unwrap();
     let dir = std::env::temp_dir().join("flux-demo");
@@ -54,6 +73,8 @@ fn main() {
     {
         let path = dir.join(format!("{pattern}.webm"));
         test_video(&path, pattern);
+        let thumb = dir.join(format!("{pattern}.png"));
+        thumbnail(&thumb, pattern);
         let video = Video {
             id: format!("demo{i}"),
             title: format!("Test pattern “{pattern}” – a demo video with a rather long title"),
@@ -61,7 +82,7 @@ fn main() {
             channel_name: channel.name.clone(),
             published: Some(Utc::now() - chrono::Duration::days(i as i64 * 3 + 1)),
             duration_secs: Some(10),
-            thumbnail_url: None,
+            thumbnail_url: Some(url::Url::from_file_path(&thumb).unwrap().into()),
         };
         let uri = url::Url::from_file_path(&path).unwrap().to_string();
         backend = backend.with_streams(

@@ -9,7 +9,7 @@ use relm4::{
 };
 
 use super::player_view::{self, PlayerView};
-use super::{Services, format, log_db_error, widgets};
+use super::{Services, format, images, log_db_error, widgets};
 use crate::core::model::{Channel, DownloadKind, PlaybackSource, Streams, Video, VideoDetails};
 use crate::core::streams;
 
@@ -196,6 +196,7 @@ pub struct VideoPage {
     services: Services,
     player: Controller<PlayerView>,
     related: gtk::ListBox,
+    avatar: adw::Avatar,
     fullscreen: bool,
     /// Whether the page is narrower than [`WIDE_WIDTH_SP`].
     narrow: bool,
@@ -315,7 +316,13 @@ impl Component for VideoPage {
                                     set_use_markup: false,
                                     #[watch]
                                     set_title: &model.state.video.channel_name,
-                                    add_prefix = &gtk::Image::from_icon_name("avatar-default-symbolic"),
+                                    #[local_ref]
+                                    add_prefix = avatar -> adw::Avatar {
+                                        set_size: 40,
+                                        set_show_initials: true,
+                                        #[watch]
+                                        set_text: Some(&model.state.video.channel_name),
+                                    },
 
                                     add_suffix = &gtk::Button {
                                         set_valign: gtk::Align::Center,
@@ -422,11 +429,13 @@ impl Component for VideoPage {
             services,
             player,
             related: widgets::boxed_list(),
+            avatar: adw::Avatar::default(),
             fullscreen: false,
             narrow: false,
             window: None,
         };
         let related = &model.related;
+        let avatar = &model.avatar;
         let widgets = view_output!();
         model.place_player(&widgets);
         model.run(effects, &sender);
@@ -568,6 +577,7 @@ impl VideoPage {
     fn fill_related(&self) {
         self.related.remove_all();
         if let Load::Loaded(details) = &self.state.details {
+            images::set_avatar(&self.avatar, details.channel.avatar_url.as_deref());
             for video in &details.related {
                 self.related.append(&widgets::video_row(video));
             }
