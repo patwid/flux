@@ -229,7 +229,7 @@ impl SearchPage {
         for item in items {
             let row = match item {
                 SearchItem::Video(v) => widgets::video_row(v),
-                SearchItem::Channel(c) => widgets::channel_row(c),
+                SearchItem::Channel(c) => widgets::channel_row(c, Some("Channel")),
             };
             self.results.append(&row);
         }

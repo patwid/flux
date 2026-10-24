@@ -48,12 +48,12 @@ pub fn avatar(channel: &Channel, size: i32) -> adw::Avatar {
 }
 
 /// An activatable list row for a channel.
-pub fn channel_row(channel: &Channel) -> adw::ActionRow {
+pub fn channel_row(channel: &Channel, subtitle: Option<&str>) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .activatable(true)
         .use_markup(false)
         .title(&channel.name)
-        .subtitle("Channel")
+        .subtitle(subtitle.unwrap_or_default())
         .build();
     row.add_prefix(&avatar(channel, 40));
     row

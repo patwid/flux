@@ -76,9 +76,7 @@ impl Component for SubscriptionsPage {
                 self.channels = log_db_error(self.services.db.subscriptions()).unwrap_or_default();
                 self.list.remove_all();
                 for channel in &self.channels {
-                    let row = widgets::channel_row(channel);
-                    row.set_subtitle("");
-                    self.list.append(&row);
+                    self.list.append(&widgets::channel_row(channel, None));
                 }
             }
             Msg::Activate(index) => {
