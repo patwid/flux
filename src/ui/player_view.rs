@@ -287,6 +287,8 @@ impl Component for PlayerView {
                     self.status = Status::Failed(e.to_string());
                 }
             }
+            // Keep the first error: later ones are usually consequences of it.
+            Msg::Error(_) if matches!(self.status, Status::Failed(_)) => {}
             Msg::Fail(e) | Msg::Error(e) => {
                 self.status = Status::Failed(e);
                 self.playing = false;
