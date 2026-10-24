@@ -29,12 +29,14 @@ pub fn select_audio(streams: &[AudioStream]) -> Option<&AudioStream> {
     streams.iter().max_by_key(|s| s.bitrate)
 }
 
-/// Chooses how to play a video: live streams use HLS; otherwise separate
+/// Chooses how to play a video: live streams use HLS (also the fallback when
+/// nothing else is available); otherwise separate
 /// video and audio streams are used when they offer a higher resolution
 /// (up to `max_height`) than the best muxed stream.
 pub fn choose_source(streams: &Streams, max_height: u32) -> Option<PlaybackSource> {
-    if let Some(hls) = &streams.hls_url {
-        return Some(PlaybackSource::Uri(hls.clone()));
+    let hls = streams.hls_url.clone().map(PlaybackSource::Uri);
+    if streams.is_live {
+        return hls;
     }
     let muxed = select_video(&streams.muxed, max_height);
     let split = select_video(&streams.video_only, max_height).zip(select_audio(&streams.audio));
@@ -45,7 +47,7 @@ pub fn choose_source(streams: &Streams, max_height: u32) -> Option<PlaybackSourc
             audio: a.url.clone(),
         }),
         (Some(m), None) => Some(PlaybackSource::Uri(m.url.clone())),
-        (None, None) => None,
+        (None, None) => hls,
     }
 }
 
@@ -121,6 +123,7 @@ mod tests {
                 .collect(),
             audio: audio_bitrates.iter().map(|&b| audio(b)).collect(),
             hls_url: None,
+            is_live: false,
         }
     }
 
@@ -128,6 +131,29 @@ mod tests {
     fn live_streams_use_hls() {
         let mut s = streams(&[360], &[1080], &[128]);
         s.hls_url = Some("https://hls".into());
+        s.is_live = true;
+        assert_eq!(
+            choose_source(&s, 720),
+            Some(PlaybackSource::Uri("https://hls".into()))
+        );
+    }
+
+    #[test]
+    fn regular_videos_prefer_streams_over_hls() {
+        let mut s = streams(&[], &[720], &[128]);
+        s.hls_url = Some("https://hls".into());
+        assert!(matches!(
+            choose_source(&s, 720),
+            Some(PlaybackSource::Split { .. })
+        ));
+    }
+
+    #[test]
+    fn hls_is_the_fallback() {
+        let s = Streams {
+            hls_url: Some("https://hls".into()),
+            ..Default::default()
+        };
         assert_eq!(
             choose_source(&s, 720),
             Some(PlaybackSource::Uri("https://hls".into()))

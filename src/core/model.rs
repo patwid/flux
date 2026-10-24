@@ -83,8 +83,9 @@ pub struct Streams {
     pub muxed: Vec<VideoStream>,
     pub video_only: Vec<VideoStream>,
     pub audio: Vec<AudioStream>,
-    /// HLS manifest, present for live streams.
+    /// HLS manifest (always present for live streams, sometimes for others).
     pub hls_url: Option<String>,
+    pub is_live: bool,
 }
 
 /// An item in search results.

@@ -97,6 +97,7 @@ impl Backend for RustyPipeBackend {
             video_only: p.video_only_streams.into_iter().map(video_stream).collect(),
             audio: p.audio_streams.into_iter().map(audio_stream).collect(),
             hls_url: p.hls_manifest_url,
+            is_live: p.details.is_live,
         })
     }
 

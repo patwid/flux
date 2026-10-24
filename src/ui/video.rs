@@ -674,6 +674,7 @@ mod tests {
                 mime: "audio/webm".into(),
             }],
             hls_url: None,
+            is_live: false,
         }
     }
 
