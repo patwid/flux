@@ -124,8 +124,17 @@ impl Component for PlayerView {
             set_cursor_from_name: if model.controls.visible() { None } else { Some("none") },
 
             add_controller = gtk::GestureClick {
-                connect_released[sender] => move |_, n_press, _, _| {
-                    sender.input(if n_press == 2 { Msg::ToggleFullscreen } else { Msg::Tap });
+                // Touch: a tap toggles the controls. Mouse: a click plays or
+                // pauses (the controls follow the pointer). Double: fullscreen.
+                connect_released[sender] => move |gesture, n_press, _, _| {
+                    let touch = gesture
+                        .current_event_device()
+                        .is_some_and(|d| d.source() == gtk::gdk::InputSource::Touchscreen);
+                    sender.input(match (n_press, touch) {
+                        (2, _) => Msg::ToggleFullscreen,
+                        (_, true) => Msg::Tap,
+                        (_, false) => Msg::TogglePlay,
+                    });
                 },
             },
             add_controller = gtk::EventControllerMotion {
