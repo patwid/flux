@@ -2,7 +2,9 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::core::model::{HistoryEntry, Video, VideoDetails};
+use crate::core::model::{
+    Download, DownloadKind, DownloadStatus, HistoryEntry, Video, VideoDetails,
+};
 
 /// Formats a duration as `m:ss` or `h:mm:ss`.
 pub fn duration(secs: u32) -> String {
@@ -96,6 +98,26 @@ pub fn history_subtitle(entry: &HistoryEntry, now: DateTime<Utc>) -> String {
     .join(" · ")
 }
 
+/// Secondary line for a download row; `progress` is from 0 to 1.
+pub fn download_status(download: &Download, progress: Option<f64>) -> String {
+    match &download.status {
+        DownloadStatus::Queued => "Queued".into(),
+        DownloadStatus::Running => match progress {
+            Some(p) => format!("Downloading · {} %", (p * 100.0).floor() as u32),
+            None => "Downloading…".into(),
+        },
+        DownloadStatus::Completed => {
+            let kind = match download.kind {
+                DownloadKind::Video => "Video",
+                DownloadKind::Audio => "Audio",
+            };
+            format!("{} · {kind}", download.video.channel_name)
+        }
+        DownloadStatus::Failed(e) => format!("Failed: {e}"),
+        DownloadStatus::Cancelled => "Cancelled".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,5 +198,37 @@ mod tests {
 
         entry.video.duration_secs = None;
         assert_eq!(history_subtitle(&entry, now), "Chan · 2 days ago · 3:20");
+    }
+
+    #[test]
+    fn download_status_text() {
+        let mut d = Download {
+            id: 1,
+            video: Video {
+                id: "a".into(),
+                title: "t".into(),
+                channel_id: "UC1".into(),
+                channel_name: "Chan".into(),
+                published: None,
+                duration_secs: None,
+                thumbnail_url: None,
+            },
+            kind: DownloadKind::Audio,
+            path: "/d/a.m4a".into(),
+            status: DownloadStatus::Queued,
+            created_at: DateTime::from_timestamp(0, 0).unwrap(),
+        };
+        assert_eq!(download_status(&d, None), "Queued");
+        d.status = DownloadStatus::Running;
+        assert_eq!(download_status(&d, None), "Downloading…");
+        assert_eq!(download_status(&d, Some(0.456)), "Downloading · 45 %");
+        d.status = DownloadStatus::Completed;
+        assert_eq!(download_status(&d, None), "Chan · Audio");
+        d.kind = DownloadKind::Video;
+        assert_eq!(download_status(&d, None), "Chan · Video");
+        d.status = DownloadStatus::Failed("HTTP 403".into());
+        assert_eq!(download_status(&d, None), "Failed: HTTP 403");
+        d.status = DownloadStatus::Cancelled;
+        assert_eq!(download_status(&d, None), "Cancelled");
     }
 }
