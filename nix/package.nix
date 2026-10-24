@@ -17,6 +17,8 @@ rustPlatform.buildRustPackage {
   pname = cargoToml.package.name;
   inherit (cargoToml.package) version;
 
+  buildType = "debug";
+
   src = lib.fileset.toSource {
     root = ../.;
     fileset = lib.fileset.unions [

@@ -5,6 +5,7 @@ use relm4::{
 
 use super::channel::{self, ChannelPage};
 use super::feed::FeedPage;
+use super::history::{self, HistoryPage};
 use super::search::{self, SearchPage};
 use super::subscriptions::{self, SubscriptionsPage};
 use super::video::{self, VideoPage};
@@ -19,6 +20,7 @@ pub struct App {
     feed: Controller<FeedPage>,
     search: Controller<SearchPage>,
     subscriptions: Controller<SubscriptionsPage>,
+    history: Controller<HistoryPage>,
     toasts: adw::ToastOverlay,
     navigation: adw::NavigationView,
     /// Pages pushed onto the navigation view, kept alive while shown.
@@ -119,11 +121,15 @@ impl Component for App {
         let subscriptions = SubscriptionsPage::builder()
             .launch(services.clone())
             .forward(sender.input_sender(), Msg::OpenChannel);
+        let history = HistoryPage::builder()
+            .launch(services.clone())
+            .forward(sender.input_sender(), Msg::OpenVideo);
         let model = App {
             services,
             feed,
             search,
             subscriptions,
+            history,
             toasts: adw::ToastOverlay::new(),
             navigation: adw::NavigationView::new(),
             pages: Vec::new(),
@@ -160,12 +166,18 @@ impl Component for App {
             "starred-symbolic",
             model.subscriptions.widget().upcast_ref(),
         );
-        for (name, title, icon) in [
-            ("history", "History", "document-open-recent-symbolic"),
-            ("downloads", "Downloads", "folder-download-symbolic"),
-        ] {
-            add_page(name, title, icon, placeholder(title, icon).upcast_ref());
-        }
+        add_page(
+            "history",
+            "History",
+            "document-open-recent-symbolic",
+            model.history.widget().upcast_ref(),
+        );
+        add_page(
+            "downloads",
+            "Downloads",
+            "folder-download-symbolic",
+            placeholder("Downloads", "folder-download-symbolic").upcast_ref(),
+        );
 
         widgets.layouts.add_layout(wide_layout(&stack));
         widgets.layouts.add_layout(narrow_layout(&stack));
@@ -185,7 +197,10 @@ impl Component for App {
 
     fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            Msg::OpenVideo(video) => self.open_video(video, &sender),
+            Msg::OpenVideo(video) => {
+                self.open_video(video, &sender);
+                self.history.emit(history::Input::Reload);
+            }
             Msg::OpenChannel(channel) => self.open_channel(channel, &sender),
             Msg::Download(v, _) => {
                 self.toast(&format!("Downloads not implemented yet: {}", v.title));
@@ -194,7 +209,11 @@ impl Component for App {
                 self.feed.emit(super::feed::Input::Reload);
                 self.subscriptions.emit(subscriptions::Msg::Reload);
             }
-            Msg::Popped(page) => self.pages.retain(|(p, _)| *p != page),
+            Msg::Popped(page) => {
+                // Dropping a video page saves its position to the history.
+                self.pages.retain(|(p, _)| *p != page);
+                self.history.emit(history::Input::Reload);
+            }
         }
     }
 }

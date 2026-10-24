@@ -1,5 +1,9 @@
 //! History page: previously watched videos.
 
+use relm4::adw::prelude::*;
+use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
+
+use super::{Services, format, log_db_error, widgets};
 use crate::core::model::{HistoryEntry, Video};
 
 /// GTK-independent state of the history page.
@@ -45,6 +49,146 @@ impl State {
             }
         }
         Vec::new()
+    }
+}
+
+pub struct HistoryPage {
+    state: State,
+    services: Services,
+    list: gtk::ListBox,
+}
+
+#[derive(Debug)]
+pub enum Input {
+    State(Msg),
+    /// Re-reads the history from the database.
+    Reload,
+    /// Asks the user to confirm clearing the history.
+    ConfirmClear,
+}
+
+#[relm4::component(pub)]
+impl Component for HistoryPage {
+    type Init = Services;
+    type Input = Input;
+    type Output = Video;
+    type CommandOutput = ();
+
+    view! {
+        gtk::Stack {
+            #[watch]
+            set_visible_child_name: if model.state.entries.is_empty() { "empty" } else { "list" },
+
+            add_named[Some("empty")] = &adw::StatusPage {
+                set_icon_name: Some("document-open-recent-symbolic"),
+                set_title: "No History",
+                set_description: Some("Videos you watch appear here"),
+            },
+            add_named[Some("list")] = &gtk::ScrolledWindow {
+                set_hscrollbar_policy: gtk::PolicyType::Never,
+
+                adw::Clamp {
+                    set_maximum_size: 800,
+
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 12,
+                        set_margin_all: 12,
+
+                        gtk::Button {
+                            set_label: "Clear History",
+                            set_halign: gtk::Align::End,
+                            add_css_class: "flat",
+                            connect_clicked => Input::ConfirmClear,
+                        },
+
+                        #[local_ref]
+                        list -> gtk::ListBox {
+                            connect_row_activated[sender] => move |_, row| {
+                                sender.input(Input::State(Msg::Activate(row.index() as usize)));
+                            },
+                        },
+                    },
+                },
+            },
+        }
+    }
+
+    fn init(
+        services: Services,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = HistoryPage {
+            state: State::default(),
+            services,
+            list: widgets::boxed_list(),
+        };
+        let list = &model.list;
+        let widgets = view_output!();
+        sender.input(Input::Reload);
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, input: Input, sender: ComponentSender<Self>, root: &Self::Root) {
+        let msg = match input {
+            Input::State(msg) => msg,
+            Input::Reload => {
+                Msg::Load(log_db_error(self.services.db.history()).unwrap_or_default())
+            }
+            Input::ConfirmClear => {
+                let dialog = adw::AlertDialog::new(
+                    Some("Clear History?"),
+                    Some("All watched videos and resume positions will be forgotten."),
+                );
+                dialog.add_responses(&[("cancel", "_Cancel"), ("clear", "_Clear")]);
+                dialog.set_response_appearance("clear", adw::ResponseAppearance::Destructive);
+                dialog.set_close_response("cancel");
+                let input = sender.input_sender().clone();
+                dialog.connect_response(Some("clear"), move |_, _| {
+                    let _ = input.send(Input::State(Msg::Clear));
+                });
+                dialog.present(Some(root));
+                return;
+            }
+        };
+        for effect in self.state.update(msg) {
+            match effect {
+                Effect::OpenVideo(video) => {
+                    let _ = sender.output(video);
+                }
+                Effect::Remove(id) => {
+                    log_db_error(self.services.db.remove_from_history(&id));
+                }
+                Effect::Clear => {
+                    log_db_error(self.services.db.clear_history());
+                }
+            }
+        }
+        self.fill(&sender);
+    }
+}
+
+impl HistoryPage {
+    fn fill(&self, sender: &ComponentSender<Self>) {
+        self.list.remove_all();
+        let now = chrono::Utc::now();
+        for (index, entry) in self.state.entries.iter().enumerate() {
+            let row = widgets::video_row(&entry.video);
+            row.set_subtitle(&format::history_subtitle(entry, now));
+            let remove = gtk::Button::builder()
+                .icon_name("user-trash-symbolic")
+                .tooltip_text("Remove From History")
+                .valign(gtk::Align::Center)
+                .css_classes(["flat"])
+                .build();
+            let input = sender.input_sender().clone();
+            remove.connect_clicked(move |_| {
+                let _ = input.send(Input::State(Msg::Remove(index)));
+            });
+            row.add_suffix(&remove);
+            self.list.append(&row);
+        }
     }
 }
 
