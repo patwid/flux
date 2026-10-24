@@ -83,6 +83,34 @@ fn plain_text(line: &str) -> String {
     text.trim().to_string()
 }
 
+/// Writes `cues` as WebVTT, so that [`parse_vtt`] reads them back.
+pub fn to_vtt(cues: &[Cue]) -> String {
+    let timestamp = |t: Duration| {
+        let secs = t.as_secs();
+        format!(
+            "{:02}:{:02}:{:02}.{:03}",
+            secs / 3600,
+            secs / 60 % 60,
+            secs % 60,
+            t.subsec_millis()
+        )
+    };
+    let mut vtt = String::from("WEBVTT\n");
+    for cue in cues {
+        let text = cue
+            .text
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;");
+        vtt += &format!(
+            "\n{} --> {}\n{text}\n",
+            timestamp(cue.start),
+            timestamp(cue.end)
+        );
+    }
+    vtt
+}
+
 /// The text to show at `position`: all active cues, one per line.
 pub fn text_at(cues: &[Cue], position: Duration) -> Option<String> {
     let active: Vec<_> = cues
@@ -200,6 +228,20 @@ mod tests {
             "We're no strangers to\nlove. You know the rules and so do"
         );
         assert_eq!(cues[1].start, ms(18_800));
+    }
+
+    #[test]
+    fn writes_vtt_that_parses_back() {
+        let cues = [
+            cue(1_360, 3_040, "Tom & Jerry <3"),
+            cue(3_723_000, 3_724_500, "Two\nlines"),
+        ];
+        let vtt = to_vtt(&cues);
+        assert!(
+            vtt.starts_with("WEBVTT\n\n00:00:01.360 --> 00:00:03.040\n"),
+            "{vtt}"
+        );
+        assert_eq!(parse_vtt(&vtt), cues);
     }
 
     #[test]
