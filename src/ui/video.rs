@@ -210,6 +210,8 @@ pub struct VideoPage {
 pub enum PageMsg {
     State(Msg),
     ToggleFullscreen,
+    LeaveFullscreen,
+    TogglePlay,
     /// The page became narrower (true) or wider than [`WIDE_WIDTH_SP`].
     Narrow(bool),
 }
@@ -233,6 +235,23 @@ impl Component for VideoPage {
         adw::ToolbarView {
             #[watch]
             set_reveal_top_bars: !model.fullscreen,
+
+            add_controller = gtk::EventControllerKey {
+                set_propagation_phase: gtk::PropagationPhase::Capture,
+                connect_key_pressed[sender] => move |_, key, _, modifiers| {
+                    if !modifiers.is_empty() {
+                        return gtk::glib::Propagation::Proceed;
+                    }
+                    let msg = match key {
+                        gtk::gdk::Key::Escape => PageMsg::LeaveFullscreen,
+                        gtk::gdk::Key::f => PageMsg::ToggleFullscreen,
+                        gtk::gdk::Key::space => PageMsg::TogglePlay,
+                        _ => return gtk::glib::Propagation::Proceed,
+                    };
+                    sender.input(msg);
+                    gtk::glib::Propagation::Stop
+                },
+            },
             add_top_bar = &adw::HeaderBar {},
 
             #[wrap(Some)]
@@ -466,8 +485,16 @@ impl Component for VideoPage {
                 self.narrow = narrow;
                 self.place_player(widgets);
             }
+            PageMsg::TogglePlay => self.player.emit(player_view::Msg::TogglePlay),
+            PageMsg::LeaveFullscreen if self.fullscreen => {
+                self.update_with_view(widgets, PageMsg::ToggleFullscreen, sender, root);
+                return;
+            }
+            PageMsg::LeaveFullscreen => {}
             PageMsg::ToggleFullscreen => {
                 self.fullscreen = !self.fullscreen;
+                self.player
+                    .emit(player_view::Msg::SetFullscreen(self.fullscreen));
                 self.place_player(widgets);
                 self.window = root.root().and_downcast::<gtk::Window>();
                 if let Some(window) = &self.window {

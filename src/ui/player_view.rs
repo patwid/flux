@@ -11,6 +11,47 @@ use super::format;
 use crate::core::model::PlaybackSource;
 use crate::player::Engine;
 
+/// Ticks (of the 500 ms position timer) without activity before the
+/// controls hide during playback.
+const HIDE_AFTER_TICKS: u32 = 6;
+
+/// Visibility of the playback controls: they hide while playing after a
+/// few seconds without user activity and always show while paused.
+#[derive(Debug, Default)]
+pub struct Controls {
+    hidden: bool,
+    idle_ticks: u32,
+}
+
+impl Controls {
+    pub fn visible(&self) -> bool {
+        !self.hidden
+    }
+
+    /// The user moved the pointer or touched the video.
+    pub fn activity(&mut self) {
+        self.hidden = false;
+        self.idle_ticks = 0;
+    }
+
+    /// The user tapped the video: toggles the controls.
+    pub fn tap(&mut self) {
+        self.hidden = !self.hidden;
+        self.idle_ticks = 0;
+    }
+
+    pub fn tick(&mut self, playing: bool) {
+        if !playing {
+            self.activity();
+            return;
+        }
+        self.idle_ticks += 1;
+        if self.idle_ticks >= HIDE_AFTER_TICKS {
+            self.hidden = true;
+        }
+    }
+}
+
 pub struct PlayerView {
     engine: Option<Engine>,
     _bus_watch: Option<gst::bus::BusWatchGuard>,
@@ -21,6 +62,8 @@ pub struct PlayerView {
     /// Seek to perform once the pipeline has prerolled.
     pending_seek: Option<Duration>,
     status: Status,
+    controls: Controls,
+    fullscreen: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +90,12 @@ pub enum Msg {
     Ended,
     Error(String),
     ToggleFullscreen,
+    /// Tells the player whether the page is fullscreen.
+    SetFullscreen(bool),
+    /// The video was tapped or clicked once.
+    Tap,
+    /// The pointer moved over the video.
+    Activity,
 }
 
 #[derive(Debug)]
@@ -71,6 +120,17 @@ impl Component for PlayerView {
 
             gtk::Overlay {
             set_overflow: gtk::Overflow::Hidden,
+            #[watch]
+            set_cursor_from_name: if model.controls.visible() { None } else { Some("none") },
+
+            add_controller = gtk::GestureClick {
+                connect_released[sender] => move |_, n_press, _, _| {
+                    sender.input(if n_press == 2 { Msg::ToggleFullscreen } else { Msg::Tap });
+                },
+            },
+            add_controller = gtk::EventControllerMotion {
+                connect_motion[sender] => move |_, _, _| sender.input(Msg::Activity),
+            },
 
                 #[local_ref]
                 picture -> gtk::Picture {
@@ -100,8 +160,13 @@ impl Component for PlayerView {
                     set_visible: matches!(model.status, Status::Failed(_)),
                 },
 
-                add_overlay = &gtk::Box {
+                add_overlay = &gtk::Revealer {
                     set_valign: gtk::Align::End,
+                    set_transition_type: gtk::RevealerTransitionType::Crossfade,
+                    #[watch]
+                    set_reveal_child: model.controls.visible() || model.status != Status::Ready,
+
+                gtk::Box {
                     set_spacing: 6,
                     set_margin_start: 6,
                     set_margin_end: 6,
@@ -147,10 +212,17 @@ impl Component for PlayerView {
                     },
 
                     gtk::Button {
-                        set_icon_name: "view-fullscreen-symbolic",
-                        set_tooltip_text: Some("Fullscreen"),
+                        #[watch]
+                        set_icon_name: if model.fullscreen {
+                            "view-restore-symbolic"
+                        } else {
+                            "view-fullscreen-symbolic"
+                        },
+                        #[watch]
+                        set_tooltip_text: Some(if model.fullscreen { "Leave Fullscreen" } else { "Fullscreen" }),
                         connect_clicked => Msg::ToggleFullscreen,
                     },
+                },
                 },
             },
         }
@@ -166,6 +238,8 @@ impl Component for PlayerView {
             duration: None,
             pending_seek: None,
             status: Status::Idle,
+            controls: Controls::default(),
+            fullscreen: false,
         };
         let picture = &model.picture;
         let widgets = view_output!();
@@ -226,7 +300,11 @@ impl Component for PlayerView {
                     let _ = engine.seek(self.position);
                 }
             }
+            Msg::Tap => self.controls.tap(),
+            Msg::Activity => self.controls.activity(),
+            Msg::SetFullscreen(fullscreen) => self.fullscreen = fullscreen,
             Msg::Tick => {
+                self.controls.tick(self.playing);
                 if let Some(engine) = &self.engine
                     && self.status == Status::Ready
                 {
@@ -316,5 +394,53 @@ impl PlayerView {
     /// Current position in whole seconds.
     pub fn position_secs(&self) -> u32 {
         self.position.as_secs() as u32
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ticks(controls: &mut Controls, n: u32, playing: bool) {
+        for _ in 0..n {
+            controls.tick(playing);
+        }
+    }
+
+    #[test]
+    fn controls_hide_while_playing() {
+        let mut controls = Controls::default();
+        ticks(&mut controls, HIDE_AFTER_TICKS - 1, true);
+        assert!(controls.visible());
+        controls.tick(true);
+        assert!(!controls.visible());
+    }
+
+    #[test]
+    fn controls_stay_while_paused() {
+        let mut controls = Controls::default();
+        ticks(&mut controls, HIDE_AFTER_TICKS * 2, false);
+        assert!(controls.visible());
+    }
+
+    #[test]
+    fn activity_shows_controls_and_restarts_timer() {
+        let mut controls = Controls::default();
+        ticks(&mut controls, HIDE_AFTER_TICKS, true);
+        controls.activity();
+        assert!(controls.visible());
+        ticks(&mut controls, HIDE_AFTER_TICKS - 1, true);
+        assert!(controls.visible());
+    }
+
+    #[test]
+    fn tap_toggles_controls() {
+        let mut controls = Controls::default();
+        controls.tap();
+        assert!(!controls.visible());
+        controls.tap();
+        assert!(controls.visible());
+        ticks(&mut controls, HIDE_AFTER_TICKS - 1, true);
+        assert!(controls.visible(), "showing restarts the timer");
     }
 }
