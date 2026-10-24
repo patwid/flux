@@ -142,6 +142,12 @@ pub fn replies(n: u32) -> String {
     format!("{} {unit}", count(n.into()))
 }
 
+/// The feed banner after channels failed to refresh.
+pub fn failed_channels(n: usize) -> String {
+    let unit = if n == 1 { "channel" } else { "channels" };
+    format!("{n} {unit} could not be refreshed")
+}
+
 /// Heading of the comments section, with the count if known.
 pub fn comments_title(count: Option<u64>) -> String {
     match count {
@@ -153,6 +159,12 @@ pub fn comments_title(count: Option<u64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_failed_channels() {
+        assert_eq!(failed_channels(1), "1 channel could not be refreshed");
+        assert_eq!(failed_channels(3), "3 channels could not be refreshed");
+    }
 
     #[test]
     fn formats_durations() {

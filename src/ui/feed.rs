@@ -144,6 +144,14 @@ impl Component for FeedPage {
                     connect_clicked => Input::State(Msg::Refresh),
                 },
             },
+            add_top_bar = &adw::Banner {
+                set_button_label: Some("Retry"),
+                #[watch]
+                set_title: &format::failed_channels(model.state.errors.len()),
+                #[watch]
+                set_revealed: !model.state.errors.is_empty() && !model.state.refreshing,
+                connect_button_clicked => Input::State(Msg::Refresh),
+            },
 
             #[wrap(Some)]
             set_content = &gtk::Stack {
@@ -265,14 +273,9 @@ impl FeedPage {
         if self.state.refreshing {
             return "Refreshing…".into();
         }
-        let updated = match self.refreshed_at {
+        match self.refreshed_at {
             Some(at) => format!("Updated {}", format::relative_date(at, Utc::now())),
             None => "Not refreshed yet".into(),
-        };
-        match self.state.errors.len() {
-            0 => updated,
-            1 => format!("{updated} · 1 channel failed"),
-            n => format!("{updated} · {n} channels failed"),
         }
     }
 }
