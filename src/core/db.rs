@@ -203,6 +203,32 @@ impl Db {
         Ok(value.and_then(|v| v.parse().ok()).and_then(timestamp))
     }
 
+    /// The language of the subtitles the user last chose; `None` if they
+    /// turned subtitles off.
+    pub fn subtitle_language(&self) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'subtitle_language'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn set_subtitle_language(&self, lang: Option<&str>) -> Result<()> {
+        match lang {
+            Some(lang) => self.conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('subtitle_language', ?1)",
+                [lang],
+            )?,
+            None => self
+                .conn
+                .execute("DELETE FROM meta WHERE key = 'subtitle_language'", [])?,
+        };
+        Ok(())
+    }
+
     /// Adds a queued download and returns its id.
     pub fn add_download(
         &self,
@@ -364,6 +390,19 @@ mod tests {
     #[test]
     fn migrations_are_valid() {
         migrations().validate().unwrap();
+    }
+
+    #[test]
+    fn subtitle_language_is_remembered_and_cleared() {
+        let db = Db::open_in_memory().unwrap();
+        assert_eq!(db.subtitle_language().unwrap(), None);
+
+        db.set_subtitle_language(Some("de-DE")).unwrap();
+        db.set_subtitle_language(Some("en")).unwrap();
+        assert_eq!(db.subtitle_language().unwrap().as_deref(), Some("en"));
+
+        db.set_subtitle_language(None).unwrap();
+        assert_eq!(db.subtitle_language().unwrap(), None);
     }
 
     #[test]
