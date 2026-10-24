@@ -28,6 +28,7 @@ rustPlatform.buildRustPackage {
       ../migrations
       ../tests
       ../examples
+      ../data
     ];
   };
 
@@ -53,6 +54,12 @@ rustPlatform.buildRustPackage {
     # Provides gtk4paintablesink.
     gst-plugins-rs
   ]);
+
+  postInstall = ''
+    install -Dm644 data/io.github.patwid.Flux.desktop -t $out/share/applications
+    install -Dm644 data/io.github.patwid.Flux.metainfo.xml -t $out/share/metainfo
+    install -Dm644 data/icons/io.github.patwid.Flux.svg -t $out/share/icons/hicolor/scalable/apps
+  '';
 
   # Downloads are muxed with ffmpeg at runtime.
   preFixup = ''

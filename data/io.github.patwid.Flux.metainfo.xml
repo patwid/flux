@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.patwid.Flux</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Flux</name>
+  <summary>Watch videos without ads or tracking</summary>
+  <description>
+    <p>
+      Flux is a lightweight streaming frontend inspired by NewPipe. It is made
+      for Linux phones first and works just as well on the desktop.
+    </p>
+    <ul>
+      <li>Search for videos and channels</li>
+      <li>Subscribe to channels without an account</li>
+      <li>Keep a watch history and resume where you left off</li>
+      <li>Download videos or audio for offline playback</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.patwid.Flux.desktop</launchable>
+  <developer id="io.github.patwid">
+    <name>Patrick Widmer</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </supports>
+  <releases>
+    <release version="0.1.0" date="2026-10-24"/>
+  </releases>
+</component>

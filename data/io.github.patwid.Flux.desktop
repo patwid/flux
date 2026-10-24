@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Flux
+Comment=Watch videos without ads or tracking
+Exec=flux
+Icon=io.github.patwid.Flux
+Terminal=false
+Type=Application
+Categories=AudioVideo;Video;Player;GTK;
+Keywords=youtube;video;stream;newpipe;
+StartupNotify=true
+X-Purism-FormFactor=Workstation;Mobile;
