@@ -5,6 +5,7 @@
   wrapGAppsHook4,
   gtk4,
   libadwaita,
+  glib-networking,
   openssl,
   gst_all_1,
   ffmpeg,
@@ -44,6 +45,8 @@ rustPlatform.buildRustPackage {
     gtk4
     libadwaita
     openssl
+    # TLS for GStreamer's HTTP source (libsoup).
+    glib-networking
   ]
   ++ (with gst_all_1; [
     gstreamer

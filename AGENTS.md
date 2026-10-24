@@ -50,19 +50,26 @@ without a display.
 ```
 flake.nix, nix/        # Nix flake: package, app, dev shell
 migrations/            # numbered SQL schema migrations (append-only)
+data/                  # desktop file, AppStream metainfo, app icon
+examples/demo.rs       # offline demo with fake backend and generated videos
+tests/                 # integration tests (data files) and fixtures
 src/
   main.rs              # app bootstrap only
   lib.rs               # crate root (so integration tests in tests/ can use it)
   core/                # no gtk imports allowed
-    model.rs           # domain types: Video, Channel, Stream, HistoryEntry, Download…
-    backend.rs         # trait Backend (search, video details, streams, channel); RustyPipeBackend impl
+    model.rs           # domain types: Video, Channel, Streams, HistoryEntry, Download…
+    backend/           # traits Backend and Downloader; rustypipe and fake impls; feed refresh
     feed.rs            # RSS/Atom parsing → Vec<Video>; feed aggregation and sorting
-    db.rs              # rusqlite: migrations, subscriptions, history, downloads repos
-    download.rs        # download manager state machine (queued/running/done/failed/cancelled)
+    streams.rs         # choosing streams / playback source
+    db.rs              # rusqlite: subscriptions, history, downloads, feed cache
+    download.rs        # download queue state machine and file naming
   player.rs            # GStreamer playback engine (no gtk; sinks are injected)
-  ui/                  # relm4 components
-    app.rs             # root: AdwApplicationWindow, navigation, breakpoints
-    search.rs  feed.rs  subscriptions.rs  history.rs  downloads.rs  player.rs  video_detail.rs
+  ui/                  # relm4 components, each with a pure `State` + `update`
+    app.rs             # root window: navigation, adaptive layouts, page wiring
+    feed.rs search.rs subscriptions.rs history.rs downloads.rs   # top-level sections
+    video.rs channel.rs                                          # pushed pages
+    player_view.rs     # video widget and controls
+    format.rs widgets.rs images.rs aspect.rs style.css           # shared helpers
 ```
 
 ### TEA conventions
@@ -73,8 +80,8 @@ src/
   that does not depend on GTK**, for example `fn update(state: &mut State, msg: Msg) -> Vec<Effect>`.
   The Relm4 component is a thin adapter: it calls the pure update and then runs the
   returned `Effect`s. This is what makes the TEA logic unit-testable.
-- IO is reached only through traits (`Backend`, the repositories, a `Clock`), so tests
-  can inject fakes.
+- IO is reached only through traits (`Backend`, `Downloader`) or the `Db`, which tests open
+  in memory. Pure functions take the current time as a parameter instead of reading the clock.
 
 ### Responsive layout
 
@@ -85,7 +92,10 @@ src/
     - `wide`: an `AdwViewSwitcherSidebar` in an `AdwOverlaySplitView`.
 - An `AdwBreakpoint` (max-width 550sp) switches the layout, rather than size-allocation hacks.
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
-- The player goes fullscreen in landscape or on request.
+- Video page: when the page is under 700sp wide, or fullscreen, the player is fixed above the scrolled details.
+  On wider pages, the player scrolls with the details inside a clamp.
+- Player controls hide during playback. A tap toggles them; a double tap, `f` or the button toggles
+  fullscreen; `Esc` leaves fullscreen; `Space` plays or pauses.
 
 ## Offline demo
 
@@ -121,7 +131,8 @@ Each change follows **red → green → refactor**:
    test and confirm it passes.
 3. **Refactor**: clean up while all tests stay green.
 4. Run `./scripts/check.sh` (fmt check, clippy with `-D warnings`, full test suite)
-   before committing. If it fails, do not commit.
+   before committing. If it fails, do not commit. Check its **exit code**. Piping its output
+   through `grep`/`head` hides failures.
 
 The tests are the specification of the behaviour. The implementation is validated
 by them, not by manual inspection alone.
@@ -150,6 +161,8 @@ by them, not by manual inspection alone.
   its own commit.
 
 ## Milestones
+
+All v1 milestones are implemented:
 
 1. Scaffolding: cargo project, deps, empty adw window, CI-style checks
 2. Core domain and DB: migrations, subscriptions, history, and download repos
