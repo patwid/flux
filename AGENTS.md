@@ -18,6 +18,7 @@ contributing to the code, human or agent.
   3. **Subscriptions**: subscribe to channels and get an aggregated feed from RSS.
   4. **History**: keep a watch history with resume position, and let the user clear it.
   5. **Download**: download videos or audio to disk, with progress and cancel. Downloaded items can be played offline.
+  6. **Comments**: show a video's top comments on its page, loaded page by page and only when the user opens them.
 
 ### Non-goals (v1)
 
@@ -25,7 +26,7 @@ contributing to the code, human or agent.
 - Importing NewPipe or OPML subscriptions
 - Flatpak packaging
 - Sites other than YouTube. The backend is still kept behind a trait, so other sites can be added later.
-- Comments, playlists, and account login
+- Comment replies, playlists, and account login
 
 ## Technology
 

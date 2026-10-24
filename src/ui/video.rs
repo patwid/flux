@@ -10,7 +10,9 @@ use relm4::{
 
 use super::player_view::{self, PlayerView};
 use super::{Services, format, images, log_db_error, widgets};
-use crate::core::model::{Channel, DownloadKind, PlaybackSource, Streams, Video, VideoDetails};
+use crate::core::model::{
+    Channel, Comment, CommentPage, DownloadKind, PlaybackSource, Streams, Video, VideoDetails,
+};
 use crate::core::streams;
 
 use crate::core::streams::DEFAULT_MAX_HEIGHT as MAX_HEIGHT;
@@ -28,6 +30,18 @@ pub enum Load<T> {
     Failed(String),
 }
 
+/// Comments of a video, loaded page by page on demand.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Comments {
+    pub items: Vec<Comment>,
+    /// Total number of comments, if known.
+    pub count: Option<u64>,
+    /// Token of the next page; `None` when all are loaded or comments are off.
+    pub next: Option<String>,
+    pub loading: bool,
+    pub error: Option<String>,
+}
+
 /// GTK-independent state of a video page.
 #[derive(Debug)]
 pub struct State {
@@ -35,6 +49,7 @@ pub struct State {
     pub details: Load<VideoDetails>,
     pub playback: Load<PlaybackSource>,
     pub subscribed: bool,
+    pub comments: Comments,
     /// Position to start playback at, in seconds.
     resume_at: u32,
     /// Last position written to the history.
@@ -66,12 +81,17 @@ pub enum Msg {
     Download(DownloadKind),
     OpenRelated(usize),
     OpenChannel,
+    /// The comments were opened: loads the first page if needed.
+    ShowComments,
+    MoreComments,
+    Comments(Result<CommentPage, String>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Effect {
     LoadDetails(String),
     LoadStreams(String),
+    LoadComments(String),
     Play {
         source: PlaybackSource,
         start_at: u32,
@@ -103,6 +123,7 @@ impl State {
             details: Load::Loading,
             playback: Load::Loading,
             subscribed: init.subscribed,
+            comments: Comments::default(),
             resume_at,
             saved_position: None,
         };
@@ -125,6 +146,11 @@ impl State {
                 self.video = details.video.clone();
                 self.video.duration_secs = self.video.duration_secs.or(duration);
                 self.video.thumbnail_url = self.video.thumbnail_url.take().or(thumbnail);
+                self.comments = Comments {
+                    count: details.comments.count,
+                    next: details.comments.next.clone(),
+                    ..Comments::default()
+                };
                 self.details = Load::Loaded(details);
             }
             Msg::Details(Err(e)) => self.details = Load::Failed(e),
@@ -169,8 +195,34 @@ impl State {
                     return vec![Effect::OpenChannel(details.channel.clone())];
                 }
             }
+            Msg::ShowComments if self.comments.items.is_empty() => return self.load_comments(),
+            Msg::ShowComments => {}
+            Msg::MoreComments => return self.load_comments(),
+            Msg::Comments(Ok(page)) => {
+                let comments = &mut self.comments;
+                comments.items.extend(page.comments);
+                comments.count = page.count.or(comments.count);
+                comments.next = page.next;
+                comments.loading = false;
+            }
+            Msg::Comments(Err(e)) => {
+                self.comments.error = Some(e);
+                self.comments.loading = false;
+            }
         }
         Vec::new()
+    }
+
+    fn load_comments(&mut self) -> Vec<Effect> {
+        let comments = &mut self.comments;
+        match &comments.next {
+            Some(token) if !comments.loading => {
+                comments.loading = true;
+                comments.error = None;
+                vec![Effect::LoadComments(token.clone())]
+            }
+            _ => Vec::new(),
+        }
     }
 
     fn play(&mut self, source: PlaybackSource) -> Vec<Effect> {
@@ -198,6 +250,9 @@ pub struct VideoPage {
     services: Services,
     player: Controller<PlayerView>,
     related: gtk::ListBox,
+    comment_list: gtk::ListBox,
+    /// Number of comments shown in `comment_list`.
+    shown_comments: usize,
     avatar: adw::Avatar,
     fullscreen: bool,
     /// Whether the page is narrower than [`WIDE_WIDTH_SP`].
@@ -410,6 +465,61 @@ impl Component for VideoPage {
                                 },
                             },
 
+                            gtk::Expander {
+                                #[watch]
+                                set_label: Some(&format::comments_title(model.state.comments.count)),
+                                #[watch]
+                                set_visible: matches!(model.state.details, Load::Loaded(_))
+                                    && (model.state.comments.next.is_some() || !model.state.comments.items.is_empty()),
+                                connect_expanded_notify[sender] => move |expander| {
+                                    if expander.is_expanded() {
+                                        sender.input(PageMsg::State(Msg::ShowComments));
+                                    }
+                                },
+
+                                gtk::Box {
+                                    set_orientation: gtk::Orientation::Vertical,
+                                    set_spacing: 12,
+                                    set_margin_top: 6,
+
+                                    #[local_ref]
+                                    comment_list -> gtk::ListBox {
+                                        #[watch]
+                                        set_visible: !model.state.comments.items.is_empty(),
+                                    },
+
+                                    adw::Spinner {
+                                        #[watch]
+                                        set_visible: model.state.comments.loading,
+                                    },
+
+                                    gtk::Label {
+                                        add_css_class: "dimmed",
+                                        set_wrap: true,
+                                        set_xalign: 0.0,
+                                        #[watch]
+                                        set_visible: model.state.comments.error.is_some(),
+                                        #[watch]
+                                        set_label: &format!(
+                                            "Cannot load comments: {}",
+                                            model.state.comments.error.as_deref().unwrap_or_default()
+                                        ),
+                                    },
+
+                                    gtk::Button {
+                                        set_halign: gtk::Align::Center,
+                                        add_css_class: "pill",
+                                        #[watch]
+                                        set_label: if model.state.comments.error.is_some() { "Retry" } else { "Load More" },
+                                        #[watch]
+                                        set_visible: model.state.comments.next.is_some()
+                                            && !model.state.comments.loading
+                                            && (!model.state.comments.items.is_empty() || model.state.comments.error.is_some()),
+                                        connect_clicked => PageMsg::State(Msg::MoreComments),
+                                    },
+                                },
+                            },
+
                             gtk::Label {
                                 set_label: "Related Videos",
                                 add_css_class: "heading",
@@ -450,12 +560,15 @@ impl Component for VideoPage {
             services,
             player,
             related: widgets::boxed_list(),
+            comment_list: widgets::boxed_list(),
+            shown_comments: 0,
             avatar: adw::Avatar::default(),
             fullscreen: false,
             narrow: false,
             window: None,
         };
         let related = &model.related;
+        let comment_list = &model.comment_list;
         let avatar = &model.avatar;
         let widgets = view_output!();
         model.place_player(&widgets);
@@ -474,10 +587,14 @@ impl Component for VideoPage {
             PageMsg::State(msg) => {
                 let details = matches!(msg, Msg::Details(_));
                 let streams = matches!(msg, Msg::Streams(_));
+                let comments = matches!(msg, Msg::Comments(_));
                 let effects = self.state.update(msg);
                 self.run(effects, &sender);
                 if details {
                     self.fill_related();
+                }
+                if comments {
+                    self.append_comments();
                 }
                 if streams && let Load::Failed(e) = &self.state.playback {
                     self.player.emit(player_view::Msg::Fail(e.clone()));
@@ -571,6 +688,12 @@ impl VideoPage {
                         Msg::Streams(backend.streams(&id).await.map_err(|e| e.to_string()))
                     });
                 }
+                Effect::LoadComments(token) => {
+                    let backend = self.services.backend.clone();
+                    sender.oneshot_command(async move {
+                        Msg::Comments(backend.comments(&token).await.map_err(|e| e.to_string()))
+                    });
+                }
                 Effect::Play { source, start_at } => {
                     self.player
                         .emit(player_view::Msg::Load { source, start_at });
@@ -603,6 +726,13 @@ impl VideoPage {
         }
     }
 
+    fn append_comments(&mut self) {
+        for comment in &self.state.comments.items[self.shown_comments..] {
+            self.comment_list.append(&widgets::comment_row(comment));
+        }
+        self.shown_comments = self.state.comments.items.len();
+    }
+
     fn fill_related(&self) {
         self.related.remove_all();
         if let Load::Loaded(details) = &self.state.details {
@@ -617,7 +747,7 @@ impl VideoPage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::model::{AudioStream, VideoStream};
+    use crate::core::model::{AudioStream, Comment, CommentPage, VideoStream};
 
     fn video(id: &str) -> Video {
         Video {
@@ -857,5 +987,93 @@ mod tests {
             state.update(Msg::Download(DownloadKind::Audio)),
             [Effect::Download(state.video.clone(), DownloadKind::Audio)]
         );
+    }
+
+    fn comment(text: &str) -> Comment {
+        Comment {
+            author: None,
+            text: text.into(),
+            published: None,
+            like_count: None,
+            reply_count: 0,
+            pinned: false,
+            by_owner: false,
+        }
+    }
+
+    fn page(texts: &[&str], next: Option<&str>) -> CommentPage {
+        CommentPage {
+            comments: texts.iter().map(|t| comment(t)).collect(),
+            count: Some(3),
+            next: next.map(Into::into),
+        }
+    }
+
+    fn with_comments() -> State {
+        let (mut state, _) = State::new(init());
+        let mut d = details();
+        d.comments = page(&[], Some("p1"));
+        state.update(Msg::Details(Ok(d)));
+        state
+    }
+
+    #[test]
+    fn showing_comments_loads_first_page_once() {
+        let mut state = with_comments();
+        assert_eq!(state.comments.count, Some(3));
+        assert!(state.comments.items.is_empty(), "loaded on demand");
+
+        assert_eq!(
+            state.update(Msg::ShowComments),
+            [Effect::LoadComments("p1".into())]
+        );
+        assert!(state.comments.loading);
+        assert!(
+            state.update(Msg::ShowComments).is_empty(),
+            "already loading"
+        );
+
+        state.update(Msg::Comments(Ok(page(&["a", "b"], Some("p2")))));
+        assert!(!state.comments.loading);
+        assert_eq!(state.comments.items, [comment("a"), comment("b")]);
+        assert!(state.update(Msg::ShowComments).is_empty(), "already loaded");
+    }
+
+    #[test]
+    fn more_comments_are_appended_until_last_page() {
+        let mut state = with_comments();
+        state.update(Msg::ShowComments);
+        state.update(Msg::Comments(Ok(page(&["a"], Some("p2")))));
+
+        assert_eq!(
+            state.update(Msg::MoreComments),
+            [Effect::LoadComments("p2".into())]
+        );
+        state.update(Msg::Comments(Ok(page(&["b"], None))));
+        assert_eq!(state.comments.items, [comment("a"), comment("b")]);
+        assert_eq!(state.comments.next, None);
+        assert!(state.update(Msg::MoreComments).is_empty());
+    }
+
+    #[test]
+    fn failed_comments_can_be_retried() {
+        let mut state = with_comments();
+        state.update(Msg::ShowComments);
+        state.update(Msg::Comments(Err("offline".into())));
+        assert_eq!(state.comments.error.as_deref(), Some("offline"));
+        assert!(!state.comments.loading);
+
+        assert_eq!(
+            state.update(Msg::ShowComments),
+            [Effect::LoadComments("p1".into())]
+        );
+        assert_eq!(state.comments.error, None);
+    }
+
+    #[test]
+    fn comments_need_details() {
+        let (mut state, _) = State::new(init());
+        assert!(state.update(Msg::ShowComments).is_empty());
+        assert!(state.update(Msg::MoreComments).is_empty());
     }
 }

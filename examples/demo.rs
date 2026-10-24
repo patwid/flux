@@ -9,7 +9,9 @@ use std::sync::Arc;
 use chrono::Utc;
 use flux::core::backend::fake::FakeBackend;
 use flux::core::db::Db;
-use flux::core::model::{Channel, SearchItem, Streams, Video, VideoDetails, VideoStream};
+use flux::core::model::{
+    Channel, Comment, CommentPage, SearchItem, Streams, Video, VideoDetails, VideoStream,
+};
 use flux::ui::Services;
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -53,6 +55,45 @@ fn thumbnail(path: &Path, pattern: &str) {
         &[gst::MessageType::Eos, gst::MessageType::Error],
     );
     pipeline.set_state(gst::State::Null).unwrap();
+}
+
+/// Two pages of generated comments, the first one by the channel and pinned.
+fn comment_pages(channel: &Channel) -> [CommentPage; 2] {
+    let comment = |i: u32| Comment {
+        author: Some(if i == 0 {
+            channel.clone()
+        } else {
+            Channel {
+                id: format!("UCviewer{i}"),
+                name: format!("@viewer{i}"),
+                avatar_url: None,
+            }
+        }),
+        text: if i % 3 == 1 {
+            "A longer comment that wraps over several lines on a phone, to check that \
+             the text is laid out properly next to the avatar."
+                .into()
+        } else {
+            format!("Comment number {i}.")
+        },
+        published: Some(Utc::now() - chrono::Duration::hours(i64::from(i * 7))),
+        like_count: Some(1_500 / (i + 1)),
+        reply_count: i % 4,
+        pinned: i == 0,
+        by_owner: i == 0,
+    };
+    [
+        CommentPage {
+            comments: (0..10).map(comment).collect(),
+            count: Some(15),
+            next: Some("demo-comments-2".into()),
+        },
+        CommentPage {
+            comments: (10..15).map(comment).collect(),
+            count: Some(15),
+            next: None,
+        },
+    ]
 }
 
 fn main() {
@@ -115,9 +156,17 @@ fn main() {
                 .filter(|v| v.id != video.id)
                 .cloned()
                 .collect(),
-            comments: Default::default(),
+            comments: CommentPage {
+                count: Some(15),
+                next: Some("demo-comments-1".into()),
+                ..Default::default()
+            },
         });
     }
+    let [first, second] = comment_pages(&channel);
+    backend = backend
+        .with_comments("demo-comments-1", first)
+        .with_comments("demo-comments-2", second);
     backend = backend.with_feed(&channel.id, videos.clone());
     backend = backend.with_channel(channel.clone(), videos.clone());
     let mut results: Vec<_> = videos.iter().cloned().map(SearchItem::Video).collect();

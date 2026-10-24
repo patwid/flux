@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 
 use crate::core::model::{
-    Download, DownloadKind, DownloadStatus, HistoryEntry, Video, VideoDetails,
+    Comment, Download, DownloadKind, DownloadStatus, HistoryEntry, Video, VideoDetails,
 };
 
 /// Formats a duration as `m:ss` or `h:mm:ss`.
@@ -116,6 +116,34 @@ pub fn download_status(download: &Download, progress: Option<f64>) -> String {
         }
         DownloadStatus::Failed(e) => format!("Failed: {e}"),
         DownloadStatus::Cancelled => "Cancelled".into(),
+    }
+}
+
+/// Secondary line under a comment: pinned, age, likes and replies.
+pub fn comment_meta(comment: &Comment, now: DateTime<Utc>) -> String {
+    let counted = |n: u64, one: &str, many: &str| {
+        let unit = if n == 1 { one } else { many };
+        (n > 0).then(|| format!("{} {unit}", count(n)))
+    };
+    [
+        comment.pinned.then(|| "Pinned".to_string()),
+        comment.published.map(|p| relative_date(p, now)),
+        comment
+            .like_count
+            .and_then(|n| counted(n.into(), "like", "likes")),
+        counted(comment.reply_count.into(), "reply", "replies"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
+/// Heading of the comments section, with the count if known.
+pub fn comments_title(count: Option<u64>) -> String {
+    match count {
+        Some(n) => format!("Comments · {}", self::count(n)),
+        None => "Comments".into(),
     }
 }
 
@@ -236,5 +264,39 @@ mod tests {
         assert_eq!(download_status(&d, None), "Failed: HTTP 403");
         d.status = DownloadStatus::Cancelled;
         assert_eq!(download_status(&d, None), "Cancelled");
+    }
+
+    #[test]
+    fn comment_meta_joins_known_parts() {
+        let now: DateTime<Utc> = "2026-10-24T12:00:00Z".parse().unwrap();
+        let mut comment = Comment {
+            author: None,
+            text: "hi".into(),
+            published: Some(now - chrono::Duration::days(4)),
+            like_count: Some(1_234),
+            reply_count: 3,
+            pinned: true,
+            by_owner: false,
+        };
+        assert_eq!(
+            comment_meta(&comment, now),
+            "Pinned · 4 days ago · 1.2K likes · 3 replies"
+        );
+
+        comment.pinned = false;
+        comment.like_count = Some(1);
+        comment.reply_count = 1;
+        assert_eq!(comment_meta(&comment, now), "4 days ago · 1 like · 1 reply");
+
+        comment.published = None;
+        comment.like_count = Some(0);
+        comment.reply_count = 0;
+        assert_eq!(comment_meta(&comment, now), "");
+    }
+
+    #[test]
+    fn comments_title_shows_count() {
+        assert_eq!(comments_title(None), "Comments");
+        assert_eq!(comments_title(Some(1_234)), "Comments · 1.2K");
     }
 }
