@@ -48,6 +48,7 @@ Pure logic is kept separate from GTK so that most of the code can be tested
 without a display.
 
 ```
+flake.nix, nix/        # Nix flake: package, app, dev shell
 migrations/            # numbered SQL schema migrations (append-only)
 src/
   main.rs              # app bootstrap only
@@ -84,6 +85,24 @@ src/
 - An `AdwBreakpoint` (max-width 550sp) switches the layout, rather than size-allocation hacks.
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
 - The player goes fullscreen in landscape or on request.
+
+## Building with Nix
+
+A Nix flake (`flake.nix`, with the package in `nix/package.nix`) builds and runs the app on
+`x86_64-linux` and `aarch64-linux`. It tracks `nixos-unstable`, which provides the latest GNOME.
+
+```sh
+nix run              # build and run Flux
+nix build            # build into ./result (runs the test suite)
+nix develop          # shell with the Rust toolchain and all system libraries
+nix flake update     # bump nixpkgs
+```
+
+- The flake only sees files tracked by git. `git add` new files before running `nix build`.
+- Whenever a change needs a new system library, GStreamer plugin or runtime tool, add it to
+  `nix/package.nix` in the same commit.
+- The `src` file set in `nix/package.nix` lists the paths the build needs. Extend it when adding
+  top-level directories that the build or the tests read.
 
 ## Development process: TDD (mandatory)
 
