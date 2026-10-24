@@ -16,10 +16,11 @@ pub fn duration(secs: u32) -> String {
     }
 }
 
-/// Secondary line for a video row: channel name and duration.
-pub fn video_subtitle(video: &Video) -> String {
+/// Secondary line for a video row: channel name, age and duration.
+pub fn video_subtitle(video: &Video, now: DateTime<Utc>) -> String {
     let duration = video.duration_secs.map(duration);
-    [Some(video.channel_name.clone()), duration]
+    let published = video.published.map(|p| relative_date(p, now));
+    [Some(video.channel_name.clone()), published, duration]
         .into_iter()
         .flatten()
         .filter(|s| !s.is_empty())
@@ -140,13 +141,18 @@ mod tests {
             duration_secs: Some(65),
             thumbnail_url: None,
         };
-        assert_eq!(video_subtitle(&video), "Chan · 1:05");
+        let now: DateTime<Utc> = "2026-10-24T12:00:00Z".parse().unwrap();
+        assert_eq!(video_subtitle(&video, now), "Chan · 1:05");
+
+        video.published = Some(now - chrono::Duration::days(3));
+        assert_eq!(video_subtitle(&video, now), "Chan · 3 days ago · 1:05");
 
         video.duration_secs = None;
-        assert_eq!(video_subtitle(&video), "Chan");
+        video.published = None;
+        assert_eq!(video_subtitle(&video, now), "Chan");
 
         video.channel_name.clear();
-        assert_eq!(video_subtitle(&video), "");
+        assert_eq!(video_subtitle(&video, now), "");
     }
 
     #[test]

@@ -13,7 +13,7 @@ pub fn video_row(video: &Video) -> adw::ActionRow {
         .use_markup(false)
         .title_lines(2)
         .title(&video.title)
-        .subtitle(format::video_subtitle(video))
+        .subtitle(format::video_subtitle(video, chrono::Utc::now()))
         .build();
     row.add_prefix(&thumbnail(video.thumbnail_url.as_deref()));
     row
