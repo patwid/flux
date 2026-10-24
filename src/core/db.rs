@@ -246,6 +246,15 @@ impl Db {
         Ok(())
     }
 
+    /// Marks a download as completed, saved at `path`.
+    pub fn complete_download(&self, id: i64, path: &Path) -> Result<()> {
+        self.conn.execute(
+            "UPDATE downloads SET status = 'completed', error = NULL, path = ?2 WHERE id = ?1",
+            (id, path.to_string_lossy()),
+        )?;
+        Ok(())
+    }
+
     /// All downloads, newest first.
     pub fn downloads(&self) -> Result<Vec<Download>> {
         self.query_downloads("ORDER BY created_at DESC, id DESC", [])
@@ -340,6 +349,8 @@ fn timestamp(secs: i64) -> Option<DateTime<Utc>> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
 
     fn channel(id: &str, name: &str) -> Channel {
@@ -635,5 +646,22 @@ mod tests {
         db.unsubscribe("UC1").unwrap();
 
         assert_eq!(db.feed().unwrap(), [other]);
+    }
+
+    #[test]
+    fn completing_download_updates_path() {
+        let db = Db::open_in_memory().unwrap();
+        let id = db
+            .add_download(
+                &video("a"),
+                DownloadKind::Video,
+                Path::new("/d/a.mp4"),
+                at(1),
+            )
+            .unwrap();
+        db.complete_download(id, Path::new("/d/a.mkv")).unwrap();
+
+        let download = db.completed_download("a").unwrap().unwrap();
+        assert_eq!(download.path, PathBuf::from("/d/a.mkv"));
     }
 }
