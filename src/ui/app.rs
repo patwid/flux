@@ -26,7 +26,10 @@ pub struct App {
     subscriptions: Controller<SubscriptionsPage>,
     history: Controller<HistoryPage>,
     downloads: Controller<DownloadsPage>,
+    /// Toasts over pushed pages.
     toasts: adw::ToastOverlay,
+    /// Toasts over the sections, kept above the bottom view switcher.
+    section_toasts: adw::ToastOverlay,
     navigation: adw::NavigationView,
     /// The top-level sections.
     stack: adw::ViewStack,
@@ -177,6 +180,7 @@ impl Component for App {
             history,
             downloads,
             toasts: adw::ToastOverlay::new(),
+            section_toasts: adw::ToastOverlay::new(),
             navigation: adw::NavigationView::new(),
             stack: adw::ViewStack::new(),
             pages: Vec::new(),
@@ -229,7 +233,8 @@ impl Component for App {
 
         widgets.layouts.add_layout(wide_layout(stack));
         widgets.layouts.add_layout(narrow_layout(stack));
-        widgets.layouts.set_child("content", stack);
+        model.section_toasts.set_child(Some(stack));
+        widgets.layouts.set_child("content", &model.section_toasts);
         widgets.layouts.set_layout_name("wide");
 
         let narrow = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
@@ -273,7 +278,7 @@ impl Component for App {
                     .build();
                 let input = sender.input_sender().clone();
                 toast.connect_button_clicked(move |_| input.emit(Msg::OpenVideo(video.clone())));
-                self.toasts.add_toast(toast);
+                self.show_toast(toast);
             }
             Msg::DownloadFailed(id, video) => {
                 let toast = adw::Toast::builder()
@@ -284,7 +289,7 @@ impl Component for App {
                 toast.connect_button_clicked(move |_| {
                     downloads.emit(downloads::Input::Queue(download::Msg::Retry(id)));
                 });
-                self.toasts.add_toast(toast);
+                self.show_toast(toast);
             }
             Msg::RemovedFromHistory(entry) => {
                 let toast = adw::Toast::builder()
@@ -295,7 +300,7 @@ impl Component for App {
                 toast.connect_button_clicked(move |_| {
                     history.emit(history::Input::State(history::Msg::Restore(entry.clone())));
                 });
-                self.toasts.add_toast(toast);
+                self.show_toast(toast);
             }
             Msg::Search => {
                 self.navigation.pop_to_tag("main");
@@ -303,8 +308,7 @@ impl Component for App {
                 self.search.model().entry.grab_focus();
             }
             Msg::Refresh => {
-                let main = self.navigation.visible_page().and_then(|p| p.tag());
-                if main.as_deref() == Some("main")
+                if self.main_page_shown()
                     && self.stack.visible_child_name().as_deref() == Some("feed")
                 {
                     self.feed
@@ -389,7 +393,22 @@ fn shortcuts_dialog() -> adw::ShortcutsDialog {
 
 impl App {
     fn toast(&self, text: &str) {
-        self.toasts.add_toast(adw::Toast::new(text));
+        self.show_toast(adw::Toast::new(text));
+    }
+
+    /// Whether the sections are shown rather than a pushed page.
+    fn main_page_shown(&self) -> bool {
+        let tag = self.navigation.visible_page().and_then(|p| p.tag());
+        tag.as_deref() == Some("main")
+    }
+
+    /// Shows `toast` over the visible page.
+    fn show_toast(&self, toast: adw::Toast) {
+        if self.main_page_shown() {
+            self.section_toasts.add_toast(toast);
+        } else {
+            self.toasts.add_toast(toast);
+        }
     }
 
     fn open_video(&mut self, video: Video, sender: &ComponentSender<Self>) {
