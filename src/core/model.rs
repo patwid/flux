@@ -104,3 +104,12 @@ pub struct VideoDetails {
     pub like_count: Option<u32>,
     pub related: Vec<Video>,
 }
+
+/// What the player should open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PlaybackSource {
+    /// A single URI with video and audio (muxed stream, HLS manifest or local file).
+    Uri(String),
+    /// Separate video and audio streams played in sync.
+    Split { video: String, audio: String },
+}
