@@ -23,6 +23,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../../migrations/001_subscriptions.sql")),
         M::up(include_str!("../../migrations/002_history.sql")),
         M::up(include_str!("../../migrations/003_downloads.sql")),
+        M::up(include_str!("../../migrations/004_feed.sql")),
     ])
 }
 
@@ -59,6 +60,8 @@ impl Db {
             "DELETE FROM subscriptions WHERE channel_id = ?1",
             [channel_id],
         )?;
+        self.conn
+            .execute("DELETE FROM feed WHERE channel_id = ?1", [channel_id])?;
         Ok(())
     }
 
@@ -144,6 +147,60 @@ impl Db {
     pub fn clear_history(&self) -> Result<()> {
         self.conn.execute("DELETE FROM history", [])?;
         Ok(())
+    }
+
+    /// Replaces the cached subscription feed with `videos` (kept in order),
+    /// refreshed at `at`.
+    pub fn store_feed(&self, videos: &[Video], at: DateTime<Utc>) -> Result<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM feed", [])?;
+        for (position, video) in videos.iter().enumerate() {
+            tx.execute(
+                "INSERT OR IGNORE INTO feed (video_id, title, channel_id, channel_name, published,
+                     duration_secs, thumbnail_url, position)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (
+                    &video.id,
+                    &video.title,
+                    &video.channel_id,
+                    &video.channel_name,
+                    video.published.map(|p| p.timestamp()),
+                    video.duration_secs,
+                    &video.thumbnail_url,
+                    position as i64,
+                ),
+            )?;
+        }
+        tx.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('feed_refreshed_at', ?1)",
+            [at.timestamp().to_string()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The cached subscription feed, in the order it was stored.
+    pub fn feed(&self) -> Result<Vec<Video>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT video_id, title, channel_id, channel_name, published, duration_secs,
+                 thumbnail_url
+             FROM feed ORDER BY position",
+        )?;
+        let rows = stmt.query_map([], video_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// When the feed was last refreshed.
+    pub fn feed_refreshed_at(&self) -> Result<Option<DateTime<Utc>>> {
+        let value: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'feed_refreshed_at'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(value.and_then(|v| v.parse().ok()).and_then(timestamp))
     }
 
     /// Adds a queued download and returns its id.
@@ -551,5 +608,32 @@ mod tests {
                 (running, DownloadStatus::Queued)
             ]
         );
+    }
+
+    #[test]
+    fn feed_is_stored_in_order_and_replaced() {
+        let db = Db::open_in_memory().unwrap();
+        assert!(db.feed().unwrap().is_empty());
+        assert_eq!(db.feed_refreshed_at().unwrap(), None);
+
+        db.store_feed(&[video("b"), video("a")], at(10)).unwrap();
+        assert_eq!(db.feed().unwrap(), [video("b"), video("a")]);
+        assert_eq!(db.feed_refreshed_at().unwrap(), Some(at(10)));
+
+        db.store_feed(&[video("c")], at(20)).unwrap();
+        assert_eq!(db.feed().unwrap(), [video("c")]);
+        assert_eq!(db.feed_refreshed_at().unwrap(), Some(at(20)));
+    }
+
+    #[test]
+    fn unsubscribing_removes_channel_from_feed() {
+        let db = Db::open_in_memory().unwrap();
+        let mut other = video("o");
+        other.channel_id = "UC2".into();
+        db.store_feed(&[video("a"), other.clone()], at(1)).unwrap();
+
+        db.unsubscribe("UC1").unwrap();
+
+        assert_eq!(db.feed().unwrap(), [other]);
     }
 }
