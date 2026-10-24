@@ -232,6 +232,7 @@ impl App {
                 .flatten()
                 .map(|d| d.path),
             subscribed: log_db_error(db.is_subscribed(&video.channel_id)).unwrap_or(false),
+            subtitle_language: log_db_error(db.subtitle_language()).flatten(),
             video,
         };
         let title = init.video.title.clone();

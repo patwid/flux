@@ -115,8 +115,11 @@ pub enum Msg {
     Tap,
     /// The pointer moved over the video.
     Activity,
-    /// Offers subtitle tracks with these names.
-    SetSubtitleTracks(Vec<String>),
+    /// Offers subtitle tracks with these names, with the one shown.
+    SetSubtitleTracks {
+        names: Vec<String>,
+        selected: Option<usize>,
+    },
     /// Shows these cues; none turns subtitles off.
     SetSubtitles(Vec<Cue>),
     SubtitlesFailed(String),
@@ -437,7 +440,9 @@ impl Component for PlayerView {
             Msg::ToggleFullscreen => {
                 let _ = sender.output(Output::ToggleFullscreen);
             }
-            Msg::SetSubtitleTracks(names) => self.fill_subtitle_menu(&names, &sender),
+            Msg::SetSubtitleTracks { names, selected } => {
+                self.fill_subtitle_menu(&names, selected, &sender);
+            }
             Msg::SetSubtitles(cues) => self.set_cues(cues, &sender),
             Msg::SubtitlesFailed(e) => {
                 self.notice = Some((format!("Cannot load subtitles: {e}"), NOTICE_TICKS));
@@ -524,13 +529,28 @@ impl PlayerView {
         }
     }
 
-    /// Fills the subtitle menu with "Off" (chosen) and the tracks.
-    fn fill_subtitle_menu(&mut self, names: &[String], sender: &ComponentSender<Self>) {
+    /// Fills the subtitle menu with "Off" and the tracks, marking the one
+    /// at `selected` (or "Off") as chosen.
+    fn fill_subtitle_menu(
+        &mut self,
+        names: &[String],
+        selected: Option<usize>,
+        sender: &ComponentSender<Self>,
+    ) {
         while let Some(child) = self.subtitle_menu.first_child() {
             self.subtitle_menu.remove(&child);
         }
-        let entry = |label: &str, index: Option<usize>| {
-            let button = gtk::CheckButton::with_label(label);
+        let off = gtk::CheckButton::with_label("Off");
+        let entries = std::iter::once((None, off.clone())).chain(names.iter().enumerate().map(
+            |(index, name)| {
+                let button = gtk::CheckButton::with_label(name);
+                button.set_group(Some(&off));
+                (Some(index), button)
+            },
+        ));
+        for (index, button) in entries {
+            // Mark before connecting, so that this is no choice of the user.
+            button.set_active(index == selected);
             let input = sender.input_sender().clone();
             button.connect_toggled(move |button| {
                 if button.is_active() {
@@ -538,12 +558,6 @@ impl PlayerView {
                 }
             });
             self.subtitle_menu.append(&button);
-            button
-        };
-        let off = entry("Off", None);
-        off.set_active(true);
-        for (index, name) in names.iter().enumerate() {
-            entry(name, Some(index)).set_group(Some(&off));
         }
         self.subtitles_off = Some(off);
         self.has_subtitle_tracks = !names.is_empty();

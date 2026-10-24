@@ -15,7 +15,7 @@ use crate::core::model::{
     VideoDetails,
 };
 use crate::core::streams;
-use crate::core::subtitles::Cue;
+use crate::core::subtitles::{self, Cue};
 
 use crate::core::streams::DEFAULT_MAX_HEIGHT as MAX_HEIGHT;
 
@@ -50,6 +50,8 @@ pub struct Subtitles {
     pub tracks: Vec<SubtitleTrack>,
     /// Index of the chosen track; `None` when subtitles are off.
     pub selected: Option<usize>,
+    /// The language to show when tracks arrive, if any.
+    pub preferred: Option<String>,
 }
 
 /// GTK-independent state of a video page.
@@ -76,6 +78,8 @@ pub struct Init {
     /// A completed download to play instead of streaming.
     pub local_file: Option<PathBuf>,
     pub subscribed: bool,
+    /// The language of the subtitles to show, if the user wants any.
+    pub subtitle_language: Option<String>,
 }
 
 // See `PageMsg`.
@@ -111,8 +115,14 @@ pub enum Effect {
         index: usize,
         url: String,
     },
-    /// Offers the subtitle tracks with these names in the player.
-    ShowSubtitleTracks(Vec<String>),
+    /// Offers the subtitle tracks with these names in the player, with the
+    /// one shown.
+    ShowSubtitleTracks {
+        names: Vec<String>,
+        selected: Option<usize>,
+    },
+    /// Remembers the language of the subtitles chosen, or that they are off.
+    SaveSubtitleLanguage(Option<String>),
     /// Shows these cues in the player; none turns subtitles off.
     ShowSubtitles(Vec<Cue>),
     SubtitlesFailed(String),
@@ -148,7 +158,10 @@ impl State {
             playback: Load::Loading,
             subscribed: init.subscribed,
             comments: Comments::default(),
-            subtitles: Subtitles::default(),
+            subtitles: Subtitles {
+                preferred: init.subtitle_language,
+                ..Subtitles::default()
+            },
             resume_at,
             saved_position: None,
         };
@@ -182,16 +195,7 @@ impl State {
             Msg::Streams(Ok(streams)) => match streams::choose_source(&streams, MAX_HEIGHT) {
                 Some(source) => {
                     let mut effects = self.play(source);
-                    self.subtitles.tracks = streams.subtitles;
-                    let names: Vec<_> = self
-                        .subtitles
-                        .tracks
-                        .iter()
-                        .map(|t| t.name.clone())
-                        .collect();
-                    if !names.is_empty() {
-                        effects.push(Effect::ShowSubtitleTracks(names));
-                    }
+                    effects.extend(self.offer_subtitles(streams.subtitles));
                     return effects;
                 }
                 None => self.playback = Load::Failed("No playable stream found".into()),
@@ -247,17 +251,22 @@ impl State {
                 self.comments.error = Some(e);
                 self.comments.loading = false;
             }
+            // Also the menu echoing a change made here.
+            Msg::SelectSubtitles(index) if index == self.subtitles.selected => {}
             Msg::SelectSubtitles(None) => {
                 self.subtitles.selected = None;
-                return vec![Effect::ShowSubtitles(Vec::new())];
+                return vec![
+                    Effect::ShowSubtitles(Vec::new()),
+                    Effect::SaveSubtitleLanguage(None),
+                ];
             }
             Msg::SelectSubtitles(Some(index)) => {
                 if let Some(track) = self.subtitles.tracks.get(index) {
-                    self.subtitles.selected = Some(index);
-                    return vec![Effect::LoadSubtitles {
-                        index,
-                        url: track.url.clone(),
-                    }];
+                    let lang = track.lang.clone();
+                    return vec![
+                        self.load_subtitles(index),
+                        Effect::SaveSubtitleLanguage(Some(lang)),
+                    ];
                 }
             }
             Msg::Subtitles(index, result) if self.subtitles.selected == Some(index) => {
@@ -273,6 +282,35 @@ impl State {
             Msg::Subtitles(..) => {}
         }
         Vec::new()
+    }
+
+    /// Offers `tracks`, showing the one in the preferred language.
+    fn offer_subtitles(&mut self, tracks: Vec<SubtitleTrack>) -> Vec<Effect> {
+        if tracks.is_empty() {
+            return Vec::new();
+        }
+        let preferred = self
+            .subtitles
+            .preferred
+            .as_deref()
+            .and_then(|lang| subtitles::preferred_track(&tracks, lang));
+        let names = tracks.iter().map(|t| t.name.clone()).collect();
+        self.subtitles.tracks = tracks;
+        let mut effects = vec![Effect::ShowSubtitleTracks {
+            names,
+            selected: preferred,
+        }];
+        effects.extend(preferred.map(|index| self.load_subtitles(index)));
+        effects
+    }
+
+    /// Selects the track at `index`, which must exist.
+    fn load_subtitles(&mut self, index: usize) -> Effect {
+        self.subtitles.selected = Some(index);
+        Effect::LoadSubtitles {
+            index,
+            url: self.subtitles.tracks[index].url.clone(),
+        }
     }
 
     fn load_comments(&mut self) -> Vec<Effect> {
@@ -766,8 +804,12 @@ impl VideoPage {
                         Msg::Subtitles(index, cues)
                     });
                 }
-                Effect::ShowSubtitleTracks(names) => {
-                    self.player.emit(player_view::Msg::SetSubtitleTracks(names));
+                Effect::ShowSubtitleTracks { names, selected } => {
+                    self.player
+                        .emit(player_view::Msg::SetSubtitleTracks { names, selected });
+                }
+                Effect::SaveSubtitleLanguage(lang) => {
+                    log_db_error(self.services.db.set_subtitle_language(lang.as_deref()));
                 }
                 Effect::ShowSubtitles(cues) => {
                     self.player.emit(player_view::Msg::SetSubtitles(cues));
@@ -869,6 +911,7 @@ mod tests {
             saved_position: None,
             local_file: None,
             subscribed: false,
+            subtitle_language: None,
         }
     }
 
@@ -1185,7 +1228,10 @@ mod tests {
         })));
         assert_eq!(
             effects.last(),
-            Some(&Effect::ShowSubtitleTracks(vec!["EN".into(), "DE".into()]))
+            Some(&Effect::ShowSubtitleTracks {
+                names: vec!["EN".into(), "DE".into()],
+                selected: None,
+            })
         );
         state
     }
@@ -1197,10 +1243,13 @@ mod tests {
 
         assert_eq!(
             state.update(Msg::SelectSubtitles(Some(1))),
-            [Effect::LoadSubtitles {
-                index: 1,
-                url: "https://subs/de".into()
-            }]
+            [
+                Effect::LoadSubtitles {
+                    index: 1,
+                    url: "https://subs/de".into()
+                },
+                Effect::SaveSubtitleLanguage(Some("de".into())),
+            ]
         );
         assert_eq!(
             state.update(Msg::Subtitles(1, Ok(cues()))),
@@ -1209,9 +1258,64 @@ mod tests {
 
         assert_eq!(
             state.update(Msg::SelectSubtitles(None)),
-            [Effect::ShowSubtitles(vec![])]
+            [
+                Effect::ShowSubtitles(vec![]),
+                Effect::SaveSubtitleLanguage(None),
+            ]
         );
         assert_eq!(state.subtitles.selected, None);
+    }
+
+    #[test]
+    fn preferred_language_is_shown_without_saving() {
+        let (mut state, _) = State::new(Init {
+            subtitle_language: Some("de-DE".into()),
+            ..init()
+        });
+        let effects = state.update(Msg::Streams(Ok(Streams {
+            subtitles: vec![track("en"), track("de")],
+            ..muxed()
+        })));
+
+        assert_eq!(
+            effects[2..],
+            [
+                Effect::ShowSubtitleTracks {
+                    names: vec!["EN".into(), "DE".into()],
+                    selected: Some(1),
+                },
+                Effect::LoadSubtitles {
+                    index: 1,
+                    url: "https://subs/de".into()
+                },
+            ]
+        );
+        assert_eq!(state.subtitles.selected, Some(1));
+        // The menu echoes the choice back.
+        assert!(state.update(Msg::SelectSubtitles(Some(1))).is_empty());
+    }
+
+    #[test]
+    fn unavailable_preferred_language_keeps_subtitles_off() {
+        let (mut state, _) = State::new(Init {
+            subtitle_language: Some("fr".into()),
+            ..init()
+        });
+        state.update(Msg::Streams(Ok(Streams {
+            subtitles: vec![track("en")],
+            ..muxed()
+        })));
+        assert_eq!(state.subtitles.selected, None);
+    }
+
+    #[test]
+    fn failed_subtitles_keep_the_preference() {
+        let mut state = with_tracks();
+        state.update(Msg::SelectSubtitles(Some(0)));
+        state.update(Msg::Subtitles(0, Err("HTTP 429".into())));
+
+        // The menu switching back to "Off" is no choice of the user.
+        assert!(state.update(Msg::SelectSubtitles(None)).is_empty());
     }
 
     #[test]
@@ -1251,7 +1355,7 @@ mod tests {
         assert!(
             !effects
                 .iter()
-                .any(|e| matches!(e, Effect::ShowSubtitleTracks(_)))
+                .any(|e| matches!(e, Effect::ShowSubtitleTracks { .. }))
         );
     }
 }

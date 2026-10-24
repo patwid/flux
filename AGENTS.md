@@ -14,7 +14,7 @@ contributing to the code, human or agent.
 - **Responsive UI**: it must work at 360×640 (phone portrait) and scale up to desktop windows.
 - **Features (v1)**:
   1. **Search**: search for videos and channels.
-  2. **Playback**: play videos in-app, with quality selection, seeking and subtitles (off by default).
+  2. **Playback**: play videos in-app, with quality selection, seeking and subtitles. Subtitles are off until the user picks a language, which is then remembered for later videos.
   3. **Subscriptions**: subscribe to channels and get an aggregated feed from RSS.
   4. **History**: keep a watch history with resume position, and let the user clear it.
   5. **Download**: download videos or audio to disk, with progress and cancel. Downloaded items can be played offline.
