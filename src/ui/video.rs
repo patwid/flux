@@ -89,7 +89,8 @@ pub enum Effect {
 /// Where to resume a video watched up to `saved` seconds. Videos watched to
 /// (almost) the end, or barely started, restart from the beginning.
 pub fn resume_point(saved: u32, duration: Option<u32>) -> u32 {
-    let near_end = duration.is_some_and(|d| saved + 10 >= d);
+    // Within the last 10 s and past 90 % counts as finished.
+    let near_end = duration.is_some_and(|d| saved + 10 >= d && saved * 10 >= d * 9);
     if saved < 5 || near_end { 0 } else { saved }
 }
 
@@ -646,6 +647,9 @@ mod tests {
         assert_eq!(resume_point(590, Some(600)), 0);
         assert_eq!(resume_point(120, None), 120);
         assert_eq!(resume_point(3, Some(600)), 0);
+        // Short videos: "near the end" is relative to the duration.
+        assert_eq!(resume_point(5, Some(10)), 5);
+        assert_eq!(resume_point(9, Some(10)), 0);
     }
 
     #[test]
