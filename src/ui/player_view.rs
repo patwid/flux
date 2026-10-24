@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use gstreamer as gst;
 use relm4::adw::prelude::*;
-use relm4::{Component, ComponentParts, ComponentSender, adw, gtk};
+use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
 use super::aspect::AspectLayout;
 use super::format;
@@ -68,7 +68,7 @@ pub struct PlayerView {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Status {
-    Idle,
+    /// Waiting for a source (streams are being fetched) or prerolling.
     Loading,
     Ready,
     Failed(String),
@@ -147,24 +147,43 @@ impl Component for PlayerView {
                     set_visible: model.status == Status::Loading,
                 },
 
-                add_overlay = &adw::StatusPage {
-                    set_icon_name: Some("dialog-error-symbolic"),
-                    set_title: "Cannot Play Video",
-                    add_css_class: "compact",
-                    #[watch]
-                    set_description: match &model.status {
-                        Status::Failed(e) => Some(e.as_str()),
-                        _ => None,
-                    },
+                add_overlay = &gtk::Box {
+                    set_orientation: gtk::Orientation::Vertical,
+                    set_spacing: 6,
+                    set_margin_all: 12,
+                    set_valign: gtk::Align::Center,
                     #[watch]
                     set_visible: matches!(model.status, Status::Failed(_)),
+
+                    gtk::Image {
+                        set_icon_name: Some("dialog-error-symbolic"),
+                        set_pixel_size: 32,
+                    },
+                    gtk::Label {
+                        set_label: "Cannot Play Video",
+                        add_css_class: "heading",
+                    },
+                    gtk::Label {
+                        add_css_class: "caption",
+                        set_wrap: true,
+                        set_justify: gtk::Justification::Center,
+                        #[watch]
+                        set_label: match &model.status {
+                            Status::Failed(e) => e,
+                            _ => "",
+                        },
+                    },
                 },
 
                 add_overlay = &gtk::Revealer {
                     set_valign: gtk::Align::End,
                     set_transition_type: gtk::RevealerTransitionType::Crossfade,
                     #[watch]
-                    set_reveal_child: model.controls.visible() || model.status != Status::Ready,
+                    set_reveal_child: match model.status {
+                        Status::Ready => model.controls.visible(),
+                        Status::Loading => true,
+                        Status::Failed(_) => false,
+                    },
 
                 gtk::Box {
                     set_spacing: 6,
@@ -237,7 +256,7 @@ impl Component for PlayerView {
             position: Duration::ZERO,
             duration: None,
             pending_seek: None,
-            status: Status::Idle,
+            status: Status::Loading,
             controls: Controls::default(),
             fullscreen: false,
         };
