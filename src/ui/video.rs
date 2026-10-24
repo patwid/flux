@@ -137,6 +137,16 @@ pub enum Effect {
 
 /// Where to resume a video watched up to `saved` seconds. Videos watched to
 /// (almost) the end, or barely started, restart from the beginning.
+/// The layout of the video page: the player above the scrolled details
+/// (narrow), scrolling with them (wide), or alone (fullscreen).
+pub fn layout_name(narrow: bool, fullscreen: bool) -> &'static str {
+    match (narrow, fullscreen) {
+        (_, true) => "fullscreen",
+        (true, false) => "narrow",
+        (false, false) => "wide",
+    }
+}
+
 pub fn resume_point(saved: u32, duration: Option<u32>) -> u32 {
     // Within the last 10 s and past 90 % counts as finished.
     let near_end = duration.is_some_and(|d| saved + 10 >= d && saved * 10 >= d * 9);
@@ -374,6 +384,7 @@ impl Component for VideoPage {
     type CommandOutput = Msg;
 
     view! {
+        #[root]
         adw::ToolbarView {
             #[watch]
             set_reveal_top_bars: !model.fullscreen,
@@ -409,182 +420,153 @@ impl Component for VideoPage {
                     connect_unapply => PageMsg::Narrow(false),
                 },
 
+                #[name = "layouts"]
                 #[wrap(Some)]
-                set_child = &gtk::Box {
-                set_orientation: gtk::Orientation::Vertical,
+                set_child = &adw::MultiLayoutView {},
+            },
+        },
 
-                // Holds the player in the narrow and fullscreen layouts.
-                #[name = "fixed_slot"]
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    #[watch]
-                    set_vexpand: model.fullscreen,
+        // The title, channel, description, comments and related videos.
+        #[name = "details"]
+        gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
+            set_spacing: 12,
+
+            gtk::Label {
+                add_css_class: "title-3",
+                set_wrap: true,
+                set_xalign: 0.0,
+                #[watch]
+                set_label: &model.state.video.title,
+            },
+
+            gtk::Label {
+                add_css_class: "dimmed",
+                set_xalign: 0.0,
+                set_wrap: true,
+                #[watch]
+                set_label: &match &model.state.details {
+                    Load::Loaded(d) => format::details_meta(d),
+                    Load::Loading => "Loading…".into(),
+                    Load::Failed(e) => format!("Cannot load details: {e}"),
+                },
+            },
+
+            gtk::ListBox {
+                add_css_class: "boxed-list",
+                set_selection_mode: gtk::SelectionMode::None,
+                connect_row_activated[sender] => move |_, _| {
+                    sender.input(PageMsg::State(Msg::OpenChannel));
                 },
 
-                gtk::ScrolledWindow {
-                    set_vexpand: true,
-                    set_hscrollbar_policy: gtk::PolicyType::Never,
+                adw::ActionRow {
+                    set_activatable: true,
+                    set_use_markup: false,
                     #[watch]
-                    set_visible: !model.fullscreen,
+                    set_title: &model.state.video.channel_name,
+                    #[local_ref]
+                    add_prefix = avatar -> adw::Avatar {
+                        set_size: 40,
+                        set_show_initials: true,
+                        #[watch]
+                        set_text: Some(&model.state.video.channel_name),
+                    },
 
-                    adw::Clamp {
-                        set_maximum_size: 1000,
+                    add_suffix = &gtk::Button {
+                        set_valign: gtk::Align::Center,
+                        #[watch]
+                        set_label: if model.state.subscribed { "Unsubscribe" } else { "Subscribe" },
+                        #[watch]
+                        set_css_classes: if model.state.subscribed { &[] } else { &["suggested-action"] },
+                        #[watch]
+                        set_sensitive: matches!(model.state.details, Load::Loaded(_)),
+                        connect_clicked => PageMsg::State(Msg::ToggleSubscribe),
+                    },
+                },
+            },
 
+            gtk::Box {
+                set_spacing: 6,
+
+                gtk::MenuButton {
+                    set_icon_name: "folder-download-symbolic",
+                    set_tooltip_text: Some("Download"),
+                    add_css_class: "circular",
+
+                    #[wrap(Some)]
+                    set_popover: download_popover = &gtk::Popover {
                         gtk::Box {
                             set_orientation: gtk::Orientation::Vertical,
-                            set_spacing: 12,
-                            set_margin_all: 12,
 
-                            // Holds the player in the wide layout.
-                            #[name = "scroll_slot"]
-                            gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                add_css_class: "card",
-                                set_overflow: gtk::Overflow::Hidden,
-                                #[watch]
-                                set_visible: !model.narrow && !model.fullscreen,
-                            },
-
-                            gtk::Label {
-                                add_css_class: "title-3",
-                                set_wrap: true,
-                                set_xalign: 0.0,
-                                #[watch]
-                                set_label: &model.state.video.title,
-                            },
-
-                            gtk::Label {
-                                add_css_class: "dimmed",
-                                set_xalign: 0.0,
-                                set_wrap: true,
-                                #[watch]
-                                set_label: &match &model.state.details {
-                                    Load::Loaded(d) => format::details_meta(d),
-                                    Load::Loading => "Loading…".into(),
-                                    Load::Failed(e) => format!("Cannot load details: {e}"),
+                            gtk::Button {
+                                set_label: "Download Video",
+                                add_css_class: "flat",
+                                connect_clicked[sender, download_popover] => move |_| {
+                                    download_popover.popdown();
+                                    sender.input(PageMsg::State(Msg::Download(DownloadKind::Video)));
                                 },
                             },
-
-                            gtk::ListBox {
-                                add_css_class: "boxed-list",
-                                set_selection_mode: gtk::SelectionMode::None,
-                                connect_row_activated[sender] => move |_, _| {
-                                    sender.input(PageMsg::State(Msg::OpenChannel));
-                                },
-
-                                adw::ActionRow {
-                                    set_activatable: true,
-                                    set_use_markup: false,
-                                    #[watch]
-                                    set_title: &model.state.video.channel_name,
-                                    #[local_ref]
-                                    add_prefix = avatar -> adw::Avatar {
-                                        set_size: 40,
-                                        set_show_initials: true,
-                                        #[watch]
-                                        set_text: Some(&model.state.video.channel_name),
-                                    },
-
-                                    add_suffix = &gtk::Button {
-                                        set_valign: gtk::Align::Center,
-                                        #[watch]
-                                        set_label: if model.state.subscribed { "Unsubscribe" } else { "Subscribe" },
-                                        #[watch]
-                                        set_css_classes: if model.state.subscribed { &[] } else { &["suggested-action"] },
-                                        #[watch]
-                                        set_sensitive: matches!(model.state.details, Load::Loaded(_)),
-                                        connect_clicked => PageMsg::State(Msg::ToggleSubscribe),
-                                    },
-                                },
-                            },
-
-                            gtk::Box {
-                                set_spacing: 6,
-
-                                gtk::MenuButton {
-                                    set_icon_name: "folder-download-symbolic",
-                                    set_tooltip_text: Some("Download"),
-                                    add_css_class: "circular",
-
-                                    #[wrap(Some)]
-                                    set_popover: download_popover = &gtk::Popover {
-                                        gtk::Box {
-                                            set_orientation: gtk::Orientation::Vertical,
-
-                                            gtk::Button {
-                                                set_label: "Download Video",
-                                                add_css_class: "flat",
-                                                connect_clicked[sender, download_popover] => move |_| {
-                                                    download_popover.popdown();
-                                                    sender.input(PageMsg::State(Msg::Download(DownloadKind::Video)));
-                                                },
-                                            },
-                                            gtk::Button {
-                                                set_label: "Download Audio",
-                                                add_css_class: "flat",
-                                                connect_clicked[sender, download_popover] => move |_| {
-                                                    download_popover.popdown();
-                                                    sender.input(PageMsg::State(Msg::Download(DownloadKind::Audio)));
-                                                },
-                                            },
-                                        },
-                                    },
-                                },
-                            },
-
-                            gtk::Expander {
-                                set_label: Some("Description"),
-                                #[watch]
-                                set_visible: matches!(&model.state.details, Load::Loaded(d) if !d.description.is_empty()),
-
-                                gtk::Label {
-                                    set_wrap: true,
-                                    set_xalign: 0.0,
-                                    set_selectable: true,
-                                    set_margin_top: 6,
-                                    #[watch]
-                                    set_label: match &model.state.details {
-                                        Load::Loaded(d) => &d.description,
-                                        _ => "",
-                                    },
-                                },
-                            },
-
-                            gtk::Expander {
-                                #[watch]
-                                set_label: Some(&format::comments_title(model.state.comments.count)),
-                                #[watch]
-                                set_visible: matches!(model.state.details, Load::Loaded(_))
-                                    && model.state.comments.available(),
-                                connect_expanded_notify[sender] => move |expander| {
-                                    if expander.is_expanded() {
-                                        sender.input(PageMsg::State(Msg::ShowComments));
-                                    }
-                                },
-
-                                #[local_ref]
-                                comment_view -> gtk::Box {
-                                    set_margin_top: 6,
-                                },
-                            },
-
-                            gtk::Label {
-                                set_label: "Related Videos",
-                                add_css_class: "heading",
-                                set_xalign: 0.0,
-                                #[watch]
-                                set_visible: matches!(&model.state.details, Load::Loaded(d) if !d.related.is_empty()),
-                            },
-
-                            #[local_ref]
-                            related -> gtk::ListBox {
-                                connect_row_activated[sender] => move |_, row| {
-                                    sender.input(PageMsg::State(Msg::OpenRelated(row.index() as usize)));
+                            gtk::Button {
+                                set_label: "Download Audio",
+                                add_css_class: "flat",
+                                connect_clicked[sender, download_popover] => move |_| {
+                                    download_popover.popdown();
+                                    sender.input(PageMsg::State(Msg::Download(DownloadKind::Audio)));
                                 },
                             },
                         },
                     },
                 },
+            },
+
+            gtk::Expander {
+                set_label: Some("Description"),
+                #[watch]
+                set_visible: matches!(&model.state.details, Load::Loaded(d) if !d.description.is_empty()),
+
+                gtk::Label {
+                    set_wrap: true,
+                    set_xalign: 0.0,
+                    set_selectable: true,
+                    set_margin_top: 6,
+                    #[watch]
+                    set_label: match &model.state.details {
+                        Load::Loaded(d) => &d.description,
+                        _ => "",
+                    },
+                },
+            },
+
+            gtk::Expander {
+                #[watch]
+                set_label: Some(&format::comments_title(model.state.comments.count)),
+                #[watch]
+                set_visible: matches!(model.state.details, Load::Loaded(_))
+                    && model.state.comments.available(),
+                connect_expanded_notify[sender] => move |expander| {
+                    if expander.is_expanded() {
+                        sender.input(PageMsg::State(Msg::ShowComments));
+                    }
+                },
+
+                #[local_ref]
+                comment_view -> gtk::Box {
+                    set_margin_top: 6,
+                },
+            },
+
+            gtk::Label {
+                set_label: "Related Videos",
+                add_css_class: "heading",
+                set_xalign: 0.0,
+                #[watch]
+                set_visible: matches!(&model.state.details, Load::Loaded(d) if !d.related.is_empty()),
+            },
+
+            #[local_ref]
+            related -> gtk::ListBox {
+                connect_row_activated[sender] => move |_, row| {
+                    sender.input(PageMsg::State(Msg::OpenRelated(row.index() as usize)));
                 },
             },
         }
@@ -630,6 +612,9 @@ impl Component for VideoPage {
         let comment_view = model.comment_list.widget();
         let avatar = &model.avatar;
         let widgets = view_output!();
+        add_layouts(&widgets.layouts);
+        widgets.layouts.set_child("player", model.player.widget());
+        widgets.layouts.set_child("details", &widgets.details);
         model.place_player(&widgets);
         model.run(effects, &sender);
         ComponentParts { model, widgets }
@@ -717,22 +702,12 @@ impl Component for VideoPage {
 }
 
 impl VideoPage {
-    /// Puts the player above the scrolled details (narrow, fullscreen) or
-    /// into them (wide).
+    /// Shows the layout for the current width and fullscreen state.
     fn place_player(&self, widgets: &VideoPageWidgets) {
-        let player = self.player.widget();
-        let slot = if self.narrow || self.fullscreen {
-            &widgets.fixed_slot
-        } else {
-            &widgets.scroll_slot
-        };
-        if player.parent().as_ref() != Some(slot.upcast_ref()) {
-            if let Some(parent) = player.parent().and_downcast::<gtk::Box>() {
-                parent.remove(player);
-            }
-            slot.append(player);
-        }
-        player.set_vexpand(self.fullscreen);
+        widgets
+            .layouts
+            .set_layout_name(layout_name(self.narrow, self.fullscreen));
+        self.player.widget().set_vexpand(self.fullscreen);
     }
 
     fn run(&self, effects: Vec<Effect>, sender: &ComponentSender<Self>) {
@@ -824,11 +799,64 @@ impl VideoPage {
     }
 }
 
+/// Adds the layouts named by [`layout_name`], with slots for the player and
+/// the details.
+fn add_layouts(view: &adw::MultiLayoutView) {
+    // The details, below `player` if given, in a scrolled clamp.
+    let scrolled = |player: Option<&gtk::Widget>| {
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        content.set_margin_all(12);
+        if let Some(player) = player {
+            content.append(player);
+        }
+        content.append(&adw::LayoutSlot::new("details"));
+        gtk::ScrolledWindow::builder()
+            .vexpand(true)
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .child(
+                &adw::Clamp::builder()
+                    .maximum_size(1000)
+                    .child(&content)
+                    .build(),
+            )
+            .build()
+    };
+    let layout = |name: &str, content: &gtk::Widget| {
+        let layout = adw::Layout::new(content);
+        layout.set_name(Some(name));
+        view.add_layout(layout);
+    };
+
+    // The player scrolls with the details, in a card.
+    let card = gtk::Box::builder()
+        .css_classes(["card"])
+        .overflow(gtk::Overflow::Hidden)
+        .build();
+    card.append(&adw::LayoutSlot::new("player"));
+    layout("wide", scrolled(Some(card.upcast_ref())).upcast_ref());
+
+    // The player stays above the scrolled details.
+    let narrow = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    narrow.append(&adw::LayoutSlot::new("player"));
+    narrow.append(&scrolled(None));
+    layout("narrow", narrow.upcast_ref());
+
+    layout("fullscreen", adw::LayoutSlot::new("player").upcast_ref());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::model::{AudioStream, Comment, CommentPage, SubtitleTrack, VideoStream};
     use crate::core::subtitles::Cue;
+
+    #[test]
+    fn player_layout() {
+        assert_eq!(layout_name(false, false), "wide");
+        assert_eq!(layout_name(true, false), "narrow");
+        assert_eq!(layout_name(false, true), "fullscreen");
+        assert_eq!(layout_name(true, true), "fullscreen");
+    }
 
     fn video(id: &str) -> Video {
         Video {
