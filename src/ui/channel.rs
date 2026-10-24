@@ -18,6 +18,8 @@ pub struct State {
 #[derive(Debug)]
 pub enum Msg {
     Loaded(Result<(Channel, Vec<Video>), String>),
+    /// Loads the channel again after it failed to load.
+    Retry,
     ToggleSubscribe,
     Activate(usize),
 }
@@ -51,6 +53,12 @@ impl State {
                 }
             }
             Msg::Loaded(Err(e)) => self.videos = Load::Failed(e),
+            Msg::Retry => {
+                if let Load::Failed(_) = self.videos {
+                    self.videos = Load::Loading;
+                    return vec![Effect::Load(self.channel.id.clone())];
+                }
+            }
             Msg::ToggleSubscribe => {
                 self.subscribed = !self.subscribed;
                 return vec![if self.subscribed {
@@ -156,6 +164,14 @@ impl Component for ChannelPage {
                                 set_description: match &model.state.videos {
                                     Load::Failed(e) => Some(e.as_str()),
                                     _ => None,
+                                },
+
+                                #[wrap(Some)]
+                                set_child = &gtk::Button {
+                                    set_label: "Retry",
+                                    set_halign: gtk::Align::Center,
+                                    add_css_class: "pill",
+                                    connect_clicked => Msg::Retry,
                                 },
                             },
                             #[local_ref]
@@ -298,6 +314,16 @@ mod tests {
         let (mut state, _) = State::new(channel("Chan"), false);
         state.update(Msg::Loaded(Err("offline".into())));
         assert_eq!(state.videos, Load::Failed("offline".into()));
+    }
+
+    #[test]
+    fn failed_load_can_be_retried() {
+        let (mut state, _) = State::new(channel("Chan"), false);
+        assert!(state.update(Msg::Retry).is_empty(), "still loading");
+
+        state.update(Msg::Loaded(Err("offline".into())));
+        assert_eq!(state.update(Msg::Retry), [Effect::Load("UC1".into())]);
+        assert_eq!(state.videos, Load::Loading);
     }
 
     #[test]

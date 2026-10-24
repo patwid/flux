@@ -79,6 +79,8 @@ pub struct Init {
 #[derive(Debug)]
 pub enum Msg {
     Details(Result<VideoDetails, String>),
+    /// Loads the details again after they failed to load.
+    RetryDetails,
     Streams(Result<Streams, String>),
     /// Playback reached this position (seconds).
     Progress(u32),
@@ -196,6 +198,12 @@ impl State {
                 self.details = Load::Loaded(details);
             }
             Msg::Details(Err(e)) => self.details = Load::Failed(e),
+            Msg::RetryDetails => {
+                if let Load::Failed(_) = self.details {
+                    self.details = Load::Loading;
+                    return vec![Effect::LoadDetails(self.video.id.clone())];
+                }
+            }
             Msg::Streams(Ok(streams)) => match streams::choose_source(&streams, MAX_HEIGHT) {
                 Some(source) => {
                     let mut effects = self.play(source);
@@ -397,6 +405,13 @@ impl Component for VideoPage {
                     set_menu_model: Some(&download_menu()),
                 },
             },
+            add_top_bar = &adw::Banner {
+                set_title: "Cannot load the video details",
+                set_button_label: Some("Retry"),
+                #[watch]
+                set_revealed: matches!(model.state.details, Load::Failed(_)),
+                connect_button_clicked => PageMsg::State(Msg::RetryDetails),
+            },
 
             #[wrap(Some)]
             set_content = &adw::BreakpointBin {
@@ -439,7 +454,7 @@ impl Component for VideoPage {
                 set_label: &match &model.state.details {
                     Load::Loaded(d) => format::details_meta(d),
                     Load::Loading => "Loading…".into(),
-                    Load::Failed(e) => format!("Cannot load details: {e}"),
+                    Load::Failed(e) => e.clone(),
                 },
             },
 
@@ -1056,6 +1071,19 @@ mod tests {
 
         state.update(Msg::Details(Err("x".into())));
         assert_eq!(state.details, Load::Failed("x".into()));
+    }
+
+    #[test]
+    fn failed_details_can_be_retried() {
+        let (mut state, _) = State::new(init());
+        assert!(state.update(Msg::RetryDetails).is_empty(), "still loading");
+
+        state.update(Msg::Details(Err("x".into())));
+        assert_eq!(
+            state.update(Msg::RetryDetails),
+            [Effect::LoadDetails("v".into())]
+        );
+        assert_eq!(state.details, Load::Loading);
     }
 
     #[test]

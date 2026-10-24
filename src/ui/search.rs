@@ -151,6 +151,14 @@ impl Component for SearchPage {
                         Status::Failed(e) => Some(e),
                         _ => None,
                     },
+
+                    #[wrap(Some)]
+                    set_child = &gtk::Button {
+                        set_label: "Retry",
+                        set_halign: gtk::Align::Center,
+                        add_css_class: "pill",
+                        connect_clicked => Msg::Submit,
+                    },
                 },
                 add_named[Some("results")] = &gtk::ScrolledWindow {
                     set_hscrollbar_policy: gtk::PolicyType::Never,
