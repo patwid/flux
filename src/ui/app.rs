@@ -4,6 +4,7 @@ use relm4::{
 };
 
 use super::channel::{self, ChannelPage};
+use super::downloads::{self, DownloadsPage};
 use super::feed::FeedPage;
 use super::history::{self, HistoryPage};
 use super::search::{self, SearchPage};
@@ -21,6 +22,7 @@ pub struct App {
     search: Controller<SearchPage>,
     subscriptions: Controller<SubscriptionsPage>,
     history: Controller<HistoryPage>,
+    downloads: Controller<DownloadsPage>,
     toasts: adw::ToastOverlay,
     navigation: adw::NavigationView,
     /// Pages pushed onto the navigation view, kept alive while shown.
@@ -124,12 +126,16 @@ impl Component for App {
         let history = HistoryPage::builder()
             .launch(services.clone())
             .forward(sender.input_sender(), Msg::OpenVideo);
+        let downloads = DownloadsPage::builder()
+            .launch(services.clone())
+            .forward(sender.input_sender(), Msg::OpenVideo);
         let model = App {
             services,
             feed,
             search,
             subscriptions,
             history,
+            downloads,
             toasts: adw::ToastOverlay::new(),
             navigation: adw::NavigationView::new(),
             pages: Vec::new(),
@@ -139,12 +145,6 @@ impl Component for App {
         let widgets = view_output!();
 
         let stack = adw::ViewStack::new();
-        let placeholder = |title: &str, icon: &str| {
-            adw::StatusPage::builder()
-                .title(title)
-                .icon_name(icon)
-                .build()
-        };
         let add_page = |name: &str, title: &str, icon: &str, child: &gtk::Widget| {
             stack.add_titled_with_icon(child, Some(name), title, icon);
         };
@@ -176,7 +176,7 @@ impl Component for App {
             "downloads",
             "Downloads",
             "folder-download-symbolic",
-            placeholder("Downloads", "folder-download-symbolic").upcast_ref(),
+            model.downloads.widget().upcast_ref(),
         );
 
         widgets.layouts.add_layout(wide_layout(&stack));
@@ -202,8 +202,9 @@ impl Component for App {
                 self.history.emit(history::Input::Reload);
             }
             Msg::OpenChannel(channel) => self.open_channel(channel, &sender),
-            Msg::Download(v, _) => {
-                self.toast(&format!("Downloads not implemented yet: {}", v.title));
+            Msg::Download(video, kind) => {
+                self.toast(&format!("Downloading “{}”", video.title));
+                self.downloads.emit(downloads::Input::Add(video, kind));
             }
             Msg::SubscriptionsChanged => {
                 self.feed.emit(super::feed::Input::Reload);

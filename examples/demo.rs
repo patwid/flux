@@ -101,8 +101,11 @@ fn main() {
     backend = backend.with_search("demo", results);
 
     let app = relm4::RelmApp::new("io.github.patwid.Flux.Demo");
+    let backend = Arc::new(backend);
     app.run::<flux::ui::app::App>(Services {
-        backend: Arc::new(backend),
+        backend: backend.clone(),
+        downloader: backend,
         db: Rc::new(Db::open_in_memory().unwrap()),
+        download_dir: dir.join("downloads"),
     });
 }

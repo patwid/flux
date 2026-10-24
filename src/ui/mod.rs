@@ -1,6 +1,7 @@
 pub mod app;
 pub mod aspect;
 pub mod channel;
+pub mod downloads;
 pub mod feed;
 pub mod format;
 pub mod history;
@@ -10,17 +11,21 @@ pub mod subscriptions;
 pub mod video;
 pub mod widgets;
 
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use crate::core::backend::Backend;
+use crate::core::backend::{Backend, Downloader};
 use crate::core::db::Db;
 
 /// Shared services handed to the pages.
 #[derive(Clone)]
 pub struct Services {
     pub backend: Arc<dyn Backend>,
+    pub downloader: Arc<dyn Downloader>,
     pub db: Rc<Db>,
+    /// Where downloads are saved.
+    pub download_dir: PathBuf,
 }
 
 /// Logs a failed database operation; the UI keeps working with stale data.
