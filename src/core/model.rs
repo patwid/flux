@@ -101,6 +101,17 @@ pub struct Streams {
     pub hls_url: Option<String>,
     pub is_live: bool,
     pub duration_secs: Option<u32>,
+    pub subtitles: Vec<SubtitleTrack>,
+}
+
+/// Subtitles of a video in one language.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubtitleTrack {
+    /// Display name, e.g. `English (auto-generated)`.
+    pub name: String,
+    pub lang: String,
+    /// URL of the WebVTT file.
+    pub url: String,
 }
 
 /// An item in search results.

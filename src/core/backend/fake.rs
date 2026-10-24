@@ -8,6 +8,7 @@ use super::{Backend, BackendError, Downloader, ProgressFn, Result};
 use crate::core::model::{
     Channel, CommentPage, DownloadKind, SearchItem, Streams, Video, VideoDetails,
 };
+use crate::core::subtitles::Cue;
 
 /// A backend serving canned data. Unknown ids yield an error.
 #[derive(Default)]
@@ -19,6 +20,8 @@ pub struct FakeBackend {
     pub feeds: HashMap<String, Vec<Video>>,
     /// Comment pages by token.
     pub comments: HashMap<String, CommentPage>,
+    /// Subtitle cues by URL.
+    pub subtitles: HashMap<String, Vec<Cue>>,
 }
 
 impl FakeBackend {
@@ -44,6 +47,11 @@ impl FakeBackend {
 
     pub fn with_feed(mut self, channel_id: &str, videos: Vec<Video>) -> Self {
         self.feeds.insert(channel_id.into(), videos);
+        self
+    }
+
+    pub fn with_subtitles(mut self, url: &str, cues: Vec<Cue>) -> Self {
+        self.subtitles.insert(url.into(), cues);
         self
     }
 
@@ -83,6 +91,10 @@ impl Backend for FakeBackend {
 
     async fn comments(&self, token: &str) -> Result<CommentPage> {
         lookup(&self.comments, token)
+    }
+
+    async fn subtitles(&self, url: &str) -> Result<Vec<Cue>> {
+        lookup(&self.subtitles, url)
     }
 }
 

@@ -8,6 +8,7 @@ use async_trait::async_trait;
 
 use super::feed;
 use super::model::{Channel, CommentPage, DownloadKind, SearchItem, Streams, Video, VideoDetails};
+use super::subtitles::Cue;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BackendError {
@@ -34,6 +35,10 @@ pub trait Backend: Send + Sync {
     async fn channel_feed(&self, channel_id: &str) -> Result<Vec<Video>>;
     /// The page of comments behind `token` (see [`CommentPage::next`]).
     async fn comments(&self, token: &str) -> Result<CommentPage>;
+    /// The cues of a subtitle track (see [`SubtitleTrack::url`]).
+    ///
+    /// [`SubtitleTrack::url`]: super::model::SubtitleTrack::url
+    async fn subtitles(&self, url: &str) -> Result<Vec<Cue>>;
 }
 
 /// Reports download progress from 0 to 1.

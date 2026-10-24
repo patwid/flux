@@ -813,6 +813,7 @@ mod tests {
             hls_url: None,
             is_live: false,
             duration_secs: Some(600),
+            subtitles: vec![],
         }
     }
 

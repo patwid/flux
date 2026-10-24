@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::{BackendError, Result};
-use crate::core::model::{AudioStream, SegmentRanges, Streams, VideoStream};
+use crate::core::model::{AudioStream, SegmentRanges, Streams, SubtitleTrack, VideoStream};
 
 pub const PLAYER_URL: &str = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
 pub const CLIENT_NAME: &str = "VISIONOS";
@@ -47,6 +47,42 @@ struct Response {
     #[serde(default)]
     streaming_data: StreamingData,
     video_details: Option<Details>,
+    captions: Option<Captions>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Captions {
+    player_captions_tracklist_renderer: CaptionTracklist,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptionTracklist {
+    #[serde(default)]
+    caption_tracks: Vec<CaptionTrack>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CaptionTrack {
+    base_url: String,
+    name: Text,
+    language_code: String,
+}
+
+/// Text in either of YouTube's two representations.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Text {
+    simple_text: Option<String>,
+    #[serde(default)]
+    runs: Vec<TextRun>,
+}
+
+#[derive(Deserialize)]
+struct TextRun {
+    text: String,
 }
 
 #[derive(Deserialize)]
@@ -155,7 +191,39 @@ pub fn parse_player_response(body: &[u8]) -> Result<Streams> {
         duration_secs: details
             .and_then(|d| d.length_seconds)
             .and_then(|l| l.parse().ok()),
+        subtitles: response
+            .captions
+            .map(|c| c.player_captions_tracklist_renderer.caption_tracks)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|track| SubtitleTrack {
+                name: track
+                    .name
+                    .simple_text
+                    .unwrap_or_else(|| track.name.runs.into_iter().map(|run| run.text).collect()),
+                lang: track.language_code,
+                url: vtt_url(&track.base_url),
+            })
+            .collect(),
     })
+}
+
+/// `url` of a timed text track, changed to request WebVTT.
+pub fn vtt_url(url: &str) -> String {
+    let Ok(mut parsed) = url::Url::parse(url) else {
+        return url.into();
+    };
+    let pairs: Vec<(String, String)> = parsed
+        .query_pairs()
+        .filter(|(key, _)| key != "fmt")
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    parsed
+        .query_pairs_mut()
+        .clear()
+        .extend_pairs(pairs)
+        .append_pair("fmt", "vtt");
+    parsed.into()
 }
 
 /// Requests the streams of a video.
@@ -237,6 +305,47 @@ mod tests {
                 .iter()
                 .all(|a| a.ranges.is_some() && a.size.is_some())
         );
+    }
+
+    #[test]
+    fn parses_subtitle_tracks() {
+        let body = serde_json::to_vec(&json!({
+            "playabilityStatus": {"status": "OK"},
+            "captions": {"playerCaptionsTracklistRenderer": {"captionTracks": [
+                {
+                    "baseUrl": "https://www.youtube.com/api/timedtext?v=x&lang=en",
+                    "name": {"runs": [{"text": "English"}]},
+                    "languageCode": "en"
+                },
+                {
+                    "baseUrl": "https://www.youtube.com/api/timedtext?v=x&kind=asr&lang=de&fmt=srv3",
+                    "name": {"simpleText": "German (auto-generated)"},
+                    "languageCode": "de",
+                    "kind": "asr"
+                }
+            ]}}
+        }))
+        .unwrap();
+
+        let streams = parse_player_response(&body).unwrap();
+
+        assert_eq!(
+            streams.subtitles,
+            [
+                SubtitleTrack {
+                    name: "English".into(),
+                    lang: "en".into(),
+                    url: "https://www.youtube.com/api/timedtext?v=x&lang=en&fmt=vtt".into(),
+                },
+                SubtitleTrack {
+                    name: "German (auto-generated)".into(),
+                    lang: "de".into(),
+                    url: "https://www.youtube.com/api/timedtext?v=x&kind=asr&lang=de&fmt=vtt"
+                        .into(),
+                },
+            ]
+        );
+        assert!(parse_player_response(FIXTURE).unwrap().subtitles.is_empty());
     }
 
     #[test]

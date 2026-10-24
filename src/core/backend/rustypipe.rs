@@ -8,10 +8,11 @@ use rustypipe::model::{self as rp, richtext::ToPlaintext};
 use super::{Backend, BackendError, Downloader, ProgressFn, Result, visionos};
 use crate::core::model::SegmentRanges;
 use crate::core::model::{
-    AudioStream, Channel, Comment, CommentPage, DownloadKind, SearchItem, Streams, Video,
-    VideoDetails, VideoStream,
+    AudioStream, Channel, Comment, CommentPage, DownloadKind, SearchItem, Streams, SubtitleTrack,
+    Video, VideoDetails, VideoStream,
 };
 use crate::core::streams::DEFAULT_MAX_HEIGHT;
+use crate::core::subtitles::{self, Cue};
 use crate::core::{download, feed};
 
 impl From<rustypipe::error::Error> for BackendError {
@@ -98,6 +99,7 @@ impl Backend for RustyPipeBackend {
             hls_url: p.hls_manifest_url,
             is_live: p.details.is_live,
             duration_secs: Some(p.details.duration),
+            subtitles: p.subtitles.into_iter().map(subtitle_track).collect(),
         })
     }
 
@@ -147,6 +149,18 @@ impl Backend for RustyPipeBackend {
     async fn comments(&self, token: &str) -> Result<CommentPage> {
         let page = self.client.query().video_comments(token, None).await?;
         Ok(comment_page(page))
+    }
+
+    async fn subtitles(&self, url: &str) -> Result<Vec<Cue>> {
+        let vtt = self
+            .http
+            .get(url)
+            .send()
+            .await?
+            .error_for_status()?
+            .text()
+            .await?;
+        Ok(subtitles::parse_vtt(&vtt))
     }
 }
 
@@ -334,6 +348,18 @@ fn comment_page(p: rp::paginator::Paginator<rp::Comment>) -> CommentPage {
     }
 }
 
+fn subtitle_track(s: rp::Subtitle) -> SubtitleTrack {
+    SubtitleTrack {
+        name: if s.auto_generated {
+            format!("{} (auto-generated)", s.lang_name)
+        } else {
+            s.lang_name
+        },
+        lang: s.lang,
+        url: visionos::vtt_url(&s.url),
+    }
+}
+
 fn video_stream(s: rp::VideoStream) -> VideoStream {
     VideoStream {
         url: s.url,
@@ -518,6 +544,29 @@ mod tests {
     }
 
     #[test]
+    fn maps_subtitle_tracks() {
+        let track = |auto: bool| -> rp::Subtitle {
+            serde_json::from_value(json!({
+                "url": "https://www.youtube.com/api/timedtext?v=x&lang=en",
+                "lang": "en",
+                "lang_name": "English",
+                "auto_generated": auto
+            }))
+            .unwrap()
+        };
+
+        assert_eq!(
+            subtitle_track(track(false)),
+            SubtitleTrack {
+                name: "English".into(),
+                lang: "en".into(),
+                url: "https://www.youtube.com/api/timedtext?v=x&lang=en&fmt=vtt".into(),
+            }
+        );
+        assert_eq!(subtitle_track(track(true)).name, "English (auto-generated)");
+    }
+
+    #[test]
     fn best_thumbnail_of_empty_list_is_none() {
         assert_eq!(best_thumbnail(&[]), None);
     }
@@ -530,6 +579,21 @@ mod tests {
         let backend = RustyPipeBackend::new(dir.path()).unwrap();
         let items = backend.search("kurzgesagt").await.unwrap();
         assert!(!items.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn subtitles_real_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = RustyPipeBackend::new(dir.path()).unwrap();
+        let streams = backend.streams("dQw4w9WgXcQ").await.unwrap();
+        let track = streams
+            .subtitles
+            .iter()
+            .find(|t| t.lang == "en")
+            .expect("English subtitles");
+        let cues = backend.subtitles(&track.url).await.unwrap();
+        assert!(cues.len() > 10, "{cues:?}");
     }
 
     #[tokio::test]
