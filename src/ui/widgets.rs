@@ -26,21 +26,25 @@ pub fn with_chevron(row: adw::ActionRow) -> adw::ActionRow {
     row
 }
 
-/// A small 16:9 thumbnail, loaded asynchronously.
+/// Size of the thumbnails in list rows, 16:9.
+const THUMBNAIL_SIZE: (i32, i32) = (128, 72);
+
+/// A 16:9 thumbnail for list rows, loaded asynchronously.
 pub fn thumbnail(url: Option<&str>) -> gtk::Widget {
+    let (width, height) = THUMBNAIL_SIZE;
     let picture = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::Cover)
         .can_shrink(true)
-        .width_request(96)
-        .height_request(54)
+        .width_request(width)
+        .height_request(height)
         .css_classes(["thumbnail"])
         .overflow(gtk::Overflow::Hidden)
         .build();
     images::set_picture(&picture, url);
     // The picture would otherwise request the image's natural size.
     adw::Clamp::builder()
-        .maximum_size(96)
-        .tightening_threshold(96)
+        .maximum_size(width)
+        .tightening_threshold(width)
         .valign(gtk::Align::Center)
         .child(&picture)
         .build()
