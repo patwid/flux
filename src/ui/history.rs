@@ -17,6 +17,8 @@ pub enum Msg {
     Load(Vec<HistoryEntry>),
     Activate(usize),
     Remove(usize),
+    /// Puts back an entry removed before.
+    Restore(HistoryEntry),
     /// Clear the whole history (after the user confirmed).
     Clear,
 }
@@ -24,7 +26,8 @@ pub enum Msg {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Effect {
     OpenVideo(Video),
-    Remove(String),
+    Remove(HistoryEntry),
+    Restore(HistoryEntry),
     Clear,
 }
 
@@ -39,9 +42,16 @@ impl State {
             }
             Msg::Remove(index) => {
                 if index < self.entries.len() {
-                    let entry = self.entries.remove(index);
-                    return vec![Effect::Remove(entry.video.id)];
+                    return vec![Effect::Remove(self.entries.remove(index))];
                 }
+            }
+            Msg::Restore(entry) => {
+                // Most recently watched first.
+                let index = self
+                    .entries
+                    .partition_point(|e| e.watched_at >= entry.watched_at);
+                self.entries.insert(index, entry.clone());
+                return vec![Effect::Restore(entry)];
             }
             Msg::Clear => {
                 self.entries.clear();
@@ -67,11 +77,18 @@ pub enum Input {
     ConfirmClear,
 }
 
+#[derive(Debug)]
+pub enum Output {
+    OpenVideo(Video),
+    /// An entry was removed; it can be restored with [`Msg::Restore`].
+    Removed(HistoryEntry),
+}
+
 #[relm4::component(pub)]
 impl Component for HistoryPage {
     type Init = Services;
     type Input = Input;
-    type Output = Video;
+    type Output = Output;
     type CommandOutput = ();
 
     view! {
@@ -161,10 +178,18 @@ impl Component for HistoryPage {
         for effect in self.state.update(msg) {
             match effect {
                 Effect::OpenVideo(video) => {
-                    let _ = sender.output(video);
+                    let _ = sender.output(Output::OpenVideo(video));
                 }
-                Effect::Remove(id) => {
-                    log_db_error(self.services.db.remove_from_history(&id));
+                Effect::Remove(entry) => {
+                    log_db_error(self.services.db.remove_from_history(&entry.video.id));
+                    let _ = sender.output(Output::Removed(entry));
+                }
+                Effect::Restore(entry) => {
+                    log_db_error(self.services.db.record_watch(
+                        &entry.video,
+                        entry.position_secs,
+                        entry.watched_at,
+                    ));
                 }
                 Effect::Clear => {
                     log_db_error(self.services.db.clear_history());
@@ -239,9 +264,30 @@ mod tests {
     #[test]
     fn removing_entry() {
         let mut state = loaded();
-        assert_eq!(state.update(Msg::Remove(0)), [Effect::Remove("a".into())]);
+        assert_eq!(state.update(Msg::Remove(0)), [Effect::Remove(entry("a"))]);
         assert_eq!(state.entries, [entry("b")]);
         assert!(state.update(Msg::Remove(5)).is_empty());
+    }
+
+    #[test]
+    fn removed_entry_can_be_restored_in_place() {
+        let at = |secs| DateTime::from_timestamp(secs, 0).unwrap();
+        let entries: Vec<_> = [("a", 3), ("b", 2), ("c", 1)]
+            .into_iter()
+            .map(|(id, secs)| HistoryEntry {
+                watched_at: at(secs),
+                ..entry(id)
+            })
+            .collect();
+        let mut state = State::default();
+        state.update(Msg::Load(entries.clone()));
+        state.update(Msg::Remove(1));
+
+        assert_eq!(
+            state.update(Msg::Restore(entries[1].clone())),
+            [Effect::Restore(entries[1].clone())]
+        );
+        assert_eq!(state.entries, entries);
     }
 
     #[test]

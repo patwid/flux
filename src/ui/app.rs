@@ -13,7 +13,7 @@ use super::search::{self, SearchPage};
 use super::subscriptions::{self, SubscriptionsPage};
 use super::video::{self, VideoPage};
 use super::{Services, log_db_error};
-use crate::core::model::{Channel, Comment, DownloadKind, Video};
+use crate::core::model::{Channel, Comment, DownloadKind, HistoryEntry, Video};
 
 /// Windows narrower than this use the mobile layout (bottom view switcher).
 const NARROW_WIDTH_SP: f64 = 550.0;
@@ -48,6 +48,8 @@ pub enum Msg {
     SubscriptionsChanged,
     OpenReplies(Comment),
     Popped(adw::NavigationPage),
+    /// Offers to undo removing this entry from the history.
+    RemovedFromHistory(HistoryEntry),
     /// Shows the search section with its entry focused.
     Search,
     /// Refreshes the feed if it is shown.
@@ -59,6 +61,15 @@ impl From<search::Output> for Msg {
         match out {
             search::Output::OpenVideo(v) => Msg::OpenVideo(v),
             search::Output::OpenChannel(c) => Msg::OpenChannel(c),
+        }
+    }
+}
+
+impl From<history::Output> for Msg {
+    fn from(out: history::Output) -> Self {
+        match out {
+            history::Output::OpenVideo(v) => Msg::OpenVideo(v),
+            history::Output::Removed(entry) => Msg::RemovedFromHistory(entry),
         }
     }
 }
@@ -136,7 +147,7 @@ impl Component for App {
             .forward(sender.input_sender(), Msg::OpenChannel);
         let history = HistoryPage::builder()
             .launch(services.clone())
-            .forward(sender.input_sender(), Msg::OpenVideo);
+            .forward(sender.input_sender(), Msg::from);
         let downloads = DownloadsPage::builder()
             .launch(services.clone())
             .forward(sender.input_sender(), Msg::OpenVideo);
@@ -235,6 +246,17 @@ impl Component for App {
                 // Dropping a video page saves its position to the history.
                 self.pages.retain(|(p, _)| *p != page);
                 self.history.emit(history::Input::Reload);
+            }
+            Msg::RemovedFromHistory(entry) => {
+                let toast = adw::Toast::builder()
+                    .title("Removed from history")
+                    .button_label("_Undo")
+                    .build();
+                let history = self.history.sender().clone();
+                toast.connect_button_clicked(move |_| {
+                    history.emit(history::Input::State(history::Msg::Restore(entry.clone())));
+                });
+                self.toasts.add_toast(toast);
             }
             Msg::Search => {
                 self.navigation.pop_to_tag("main");
