@@ -9,7 +9,7 @@ use relm4::{
     adw, gtk,
 };
 
-use super::comments::{CommentList, Comments, Rows};
+use super::comments::{CommentList, Comments};
 use super::player_view::{self, PlayerView};
 use super::{Services, format, images, log_db_error, widgets};
 use crate::core::model::{
@@ -529,25 +529,41 @@ impl Component for VideoPage {
                     },
                 },
 
-                #[local_ref]
-                comments_row -> adw::ExpanderRow {
-                    #[watch]
-                    set_title: &format::comments_title(model.state.comments.count),
-                    #[watch]
-                    set_visible: model.state.comments.available(),
-                    connect_expanded_notify[sender] => move |row| {
-                        if row.is_expanded() {
-                            sender.input(PageMsg::State(Msg::ShowComments));
-                        }
-                    },
+            },
+
+            // Related videos and comments, shown one at a time. Comments
+            // are only loaded once their tab is chosen.
+            #[name = "tabs"]
+            adw::ToggleGroup {
+                set_homogeneous: true,
+                #[watch]
+                set_visible: matches!(model.state.details, Load::Loaded(_)),
+                add: adw::Toggle::builder().name("related").label("Related Videos").build(),
+                // Labelled and enabled by `update_comments_tab`.
+                add: adw::Toggle::builder().name("comments").build(),
+                connect_active_name_notify[sender] => move |tabs| {
+                    if tabs.active_name().as_deref() == Some("comments") {
+                        sender.input(PageMsg::State(Msg::ShowComments));
+                    }
                 },
             },
 
-            #[local_ref]
-            related -> adw::PreferencesGroup {
-                set_title: "Related Videos",
+            #[name = "tab_stack"]
+            gtk::Stack {
+                set_vhomogeneous: false,
                 #[watch]
-                set_visible: matches!(&model.state.details, Load::Loaded(d) if !d.related.is_empty()),
+                set_visible: matches!(model.state.details, Load::Loaded(_)),
+
+                #[local_ref]
+                add_named[Some("related")] = related -> adw::PreferencesGroup {
+                    adw::ActionRow {
+                        set_title: "No related videos",
+                        #[watch]
+                        set_visible: model.related_rows.is_empty(),
+                    },
+                },
+                #[local_ref]
+                add_named[Some("comments")] = comments -> adw::PreferencesGroup {},
             },
         }
     }
@@ -558,7 +574,7 @@ impl Component for VideoPage {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let (state, effects) = State::new(init);
-        let comments_row = adw::ExpanderRow::new();
+        let comments = adw::PreferencesGroup::new();
         let player =
             PlayerView::builder()
                 .launch(())
@@ -576,7 +592,7 @@ impl Component for VideoPage {
             related: adw::PreferencesGroup::new(),
             related_rows: Vec::new(),
             comment_list: CommentList::new(
-                Rows::Expander(comments_row.clone()),
+                comments.clone(),
                 {
                     let sender = sender.clone();
                     move || sender.input(PageMsg::State(Msg::MoreComments))
@@ -592,9 +608,15 @@ impl Component for VideoPage {
             window: None,
         };
         let related = &model.related;
-        let comments_row = &comments_row;
+        let comments = &comments;
         let avatar = &model.avatar;
         let widgets = view_output!();
+        widgets
+            .tabs
+            .bind_property("active-name", &widgets.tab_stack, "visible-child-name")
+            .sync_create()
+            .build();
+        model.update_comments_tab(&widgets);
         add_actions(&root, &sender);
         add_shortcuts(&root, &sender);
         add_layouts(&widgets.layouts);
@@ -625,8 +647,9 @@ impl Component for VideoPage {
                 if details {
                     self.fill_related(&sender);
                 }
-                if comments {
+                if comments || details {
                     self.comment_list.update(&self.state.comments);
+                    self.update_comments_tab(widgets);
                 }
                 if streams && let Load::Failed(e) = &self.state.playback {
                     self.player.emit(player_view::Msg::Fail(e.clone()));
@@ -687,6 +710,15 @@ impl Component for VideoPage {
 }
 
 impl VideoPage {
+    /// Shows the number of comments on their tab, which is disabled when
+    /// there are none.
+    fn update_comments_tab(&self, widgets: &VideoPageWidgets) {
+        if let Some(tab) = widgets.tabs.toggle_by_name("comments") {
+            tab.set_label(Some(&format::comments_title(self.state.comments.count)));
+            tab.set_enabled(self.state.comments.available());
+        }
+    }
+
     /// Shows the layout for the current width and fullscreen state.
     fn place_player(&self, widgets: &VideoPageWidgets) {
         widgets

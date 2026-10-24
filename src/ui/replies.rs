@@ -3,7 +3,7 @@
 use relm4::adw::prelude::*;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
-use super::comments::{self, CommentList, Comments, Rows};
+use super::comments::{self, CommentList, Comments};
 use super::{Services, format};
 use crate::core::model::{Comment, CommentPage};
 
@@ -110,7 +110,7 @@ impl Component for RepliesPage {
             services,
             // Replies have no replies of their own to open.
             list: CommentList::new(
-                Rows::Group(replies.clone()),
+                replies.clone(),
                 move || more.emit(Msg::More),
                 None::<fn(usize)>,
             ),

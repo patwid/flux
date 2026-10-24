@@ -99,7 +99,8 @@ src/
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
 - Video page: when the page is under 700sp wide, or fullscreen, the player is fixed above the scrolled details.
   On wider pages, the player scrolls with the details inside a clamp. An `AdwMultiLayoutView` with the
-  layouts `narrow`, `wide` and `fullscreen` places the player.
+  layouts `narrow`, `wide` and `fullscreen` places the player. Below the description, an
+  `AdwToggleGroup` switches between related videos (shown first) and comments.
 - Prefer libadwaita patterns over hand-built ones: menus are `gio::Menu` models backed by actions,
   lists are boxed lists of `AdwActionRow`/`AdwExpanderRow`/`AdwButtonRow` (long lists such as the
   feed use a `GtkListView`), loading and error pages are `AdwStatusPage`s, failures that can be

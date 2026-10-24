@@ -58,33 +58,10 @@ impl Comments {
     }
 }
 
-/// Where a [`CommentList`] adds its rows.
-#[derive(Clone)]
-pub enum Rows {
-    Group(adw::PreferencesGroup),
-    Expander(adw::ExpanderRow),
-}
-
-impl Rows {
-    fn add(&self, row: &impl IsA<gtk::Widget>) {
-        match self {
-            Rows::Group(group) => group.add(row),
-            Rows::Expander(expander) => expander.add_row(row),
-        }
-    }
-
-    fn remove(&self, row: &impl IsA<gtk::Widget>) {
-        match self {
-            Rows::Group(group) => group.remove(row),
-            Rows::Expander(expander) => expander.remove(row),
-        }
-    }
-}
-
 /// Shows [`Comments`] as rows: the comments, then a spinner while loading,
 /// errors, and a button to load the next page.
 pub struct CommentList {
-    rows: Rows,
+    rows: adw::PreferencesGroup,
     spinner: adw::PreferencesRow,
     error: adw::ActionRow,
     more: adw::ButtonRow,
@@ -95,11 +72,11 @@ pub struct CommentList {
 }
 
 impl CommentList {
-    /// Adds the rows to `rows`. `on_more` is called when the user asks for
+    /// Adds the rows to the group `rows`. `on_more` is called when the user asks for
     /// the next page, and `on_replies` with a comment's index to open its
     /// replies; without it, replies cannot be opened.
     pub fn new(
-        rows: Rows,
+        rows: adw::PreferencesGroup,
         on_more: impl Fn() + 'static,
         on_replies: Option<impl Fn(usize) + 'static>,
     ) -> Self {
