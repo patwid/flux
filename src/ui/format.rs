@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::core::model::{Video, VideoDetails};
+use crate::core::model::{HistoryEntry, Video, VideoDetails};
 
 /// Formats a duration as `m:ss` or `h:mm:ss`.
 pub fn duration(secs: u32) -> String {
@@ -79,6 +79,23 @@ pub fn details_meta(details: &VideoDetails) -> String {
         .join(" · ")
 }
 
+/// Secondary line for a history row: channel, when it was watched and how far.
+pub fn history_subtitle(entry: &HistoryEntry, now: DateTime<Utc>) -> String {
+    let mut progress = duration(entry.position_secs);
+    if let Some(total) = entry.video.duration_secs {
+        progress = format!("{progress} / {}", duration(total));
+    }
+    [
+        entry.video.channel_name.clone(),
+        relative_date(entry.watched_at, now),
+        progress,
+    ]
+    .into_iter()
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +151,30 @@ mod tests {
         assert_eq!(ago(3 * 7 * 86_400), "3 weeks ago");
         assert_eq!(ago(65 * 86_400), "2 months ago");
         assert_eq!(ago(800 * 86_400), "2 years ago");
+    }
+
+    #[test]
+    fn history_subtitle_shows_progress() {
+        let now: DateTime<Utc> = "2026-10-24T12:00:00Z".parse().unwrap();
+        let mut entry = HistoryEntry {
+            video: Video {
+                id: "a".into(),
+                title: "t".into(),
+                channel_id: "UC1".into(),
+                channel_name: "Chan".into(),
+                published: None,
+                duration_secs: Some(600),
+                thumbnail_url: None,
+            },
+            watched_at: now - chrono::Duration::days(2),
+            position_secs: 200,
+        };
+        assert_eq!(
+            history_subtitle(&entry, now),
+            "Chan · 2 days ago · 3:20 / 10:00"
+        );
+
+        entry.video.duration_secs = None;
+        assert_eq!(history_subtitle(&entry, now), "Chan · 2 days ago · 3:20");
     }
 }
