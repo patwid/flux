@@ -55,3 +55,34 @@ pub struct Download {
     pub status: DownloadStatus,
     pub created_at: DateTime<Utc>,
 }
+
+/// A stream containing video (and, if muxed, audio).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VideoStream {
+    pub url: String,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u8,
+    pub bitrate: u32,
+    /// MIME type including codecs, e.g. `video/mp4; codecs="avc1.4d401e"`.
+    pub mime: String,
+}
+
+/// An audio-only stream.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AudioStream {
+    pub url: String,
+    pub bitrate: u32,
+    pub mime: String,
+}
+
+/// Everything needed to play a video.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Streams {
+    /// Streams with both video and audio.
+    pub muxed: Vec<VideoStream>,
+    pub video_only: Vec<VideoStream>,
+    pub audio: Vec<AudioStream>,
+    /// HLS manifest, present for live streams.
+    pub hls_url: Option<String>,
+}
