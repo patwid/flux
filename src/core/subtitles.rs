@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use super::model::SubtitleTrack;
+
 /// A piece of subtitle text shown from `start` until `end`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cue {
@@ -91,9 +93,60 @@ pub fn text_at(cues: &[Cue], position: Duration) -> Option<String> {
     (!active.is_empty()).then(|| active.join("\n"))
 }
 
+/// The index of the track to show for the preferred language `lang`:
+/// the same language, then the base language (`en` for `en-GB`), then
+/// other variants of it (`en-US`); manual before auto-generated tracks.
+pub fn preferred_track(tracks: &[SubtitleTrack], lang: &str) -> Option<usize> {
+    let base = |lang: &str| lang.split('-').next().unwrap_or_default().to_lowercase();
+    tracks
+        .iter()
+        .enumerate()
+        .filter_map(|(index, track)| {
+            let rank = if track.lang.eq_ignore_ascii_case(lang) {
+                0
+            } else if track.lang.eq_ignore_ascii_case(&base(lang)) {
+                1
+            } else if base(&track.lang) == base(lang) {
+                2
+            } else {
+                return None;
+            };
+            Some((index, (rank, track.auto_generated)))
+        })
+        .min_by_key(|(_, key)| *key)
+        .map(|(index, _)| index)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn track(lang: &str, auto_generated: bool) -> SubtitleTrack {
+        SubtitleTrack {
+            name: lang.into(),
+            lang: lang.into(),
+            url: String::new(),
+            auto_generated,
+        }
+    }
+
+    #[test]
+    fn prefers_same_language_then_manual_tracks() {
+        let tracks = [
+            track("de", true),
+            track("en", true),
+            track("en-GB", false),
+            track("en", false),
+            track("pt-BR", true),
+        ];
+        assert_eq!(preferred_track(&tracks, "en"), Some(3));
+        assert_eq!(preferred_track(&tracks, "EN-gb"), Some(2));
+        assert_eq!(preferred_track(&tracks, "en-US"), Some(3));
+        assert_eq!(preferred_track(&tracks, "de-DE"), Some(0));
+        assert_eq!(preferred_track(&tracks, "pt"), Some(4));
+        assert_eq!(preferred_track(&tracks, "fr"), None);
+        assert_eq!(preferred_track(&[], "en"), None);
+    }
 
     fn ms(ms: u64) -> Duration {
         Duration::from_millis(ms)

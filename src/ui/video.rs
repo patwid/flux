@@ -1165,6 +1165,7 @@ mod tests {
             name: lang.to_uppercase(),
             lang: lang.into(),
             url: format!("https://subs/{lang}"),
+            auto_generated: false,
         }
     }
 

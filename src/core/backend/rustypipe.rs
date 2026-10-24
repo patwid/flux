@@ -357,6 +357,7 @@ fn subtitle_track(s: rp::Subtitle) -> SubtitleTrack {
         },
         lang: s.lang,
         url: visionos::vtt_url(&s.url),
+        auto_generated: s.auto_generated,
     }
 }
 
@@ -561,9 +562,12 @@ mod tests {
                 name: "English".into(),
                 lang: "en".into(),
                 url: "https://www.youtube.com/api/timedtext?v=x&lang=en&fmt=vtt".into(),
+                auto_generated: false,
             }
         );
-        assert_eq!(subtitle_track(track(true)).name, "English (auto-generated)");
+        let auto = subtitle_track(track(true));
+        assert_eq!(auto.name, "English (auto-generated)");
+        assert!(auto.auto_generated);
     }
 
     #[test]

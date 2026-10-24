@@ -69,6 +69,8 @@ struct CaptionTrack {
     base_url: String,
     name: Text,
     language_code: String,
+    /// `asr` for auto-generated tracks.
+    kind: Option<String>,
 }
 
 /// Text in either of YouTube's two representations.
@@ -203,6 +205,7 @@ pub fn parse_player_response(body: &[u8]) -> Result<Streams> {
                     .unwrap_or_else(|| track.name.runs.into_iter().map(|run| run.text).collect()),
                 lang: track.language_code,
                 url: vtt_url(&track.base_url),
+                auto_generated: track.kind.as_deref() == Some("asr"),
             })
             .collect(),
     })
@@ -336,12 +339,14 @@ mod tests {
                     name: "English".into(),
                     lang: "en".into(),
                     url: "https://www.youtube.com/api/timedtext?v=x&lang=en&fmt=vtt".into(),
+                    auto_generated: false,
                 },
                 SubtitleTrack {
                     name: "German (auto-generated)".into(),
                     lang: "de".into(),
                     url: "https://www.youtube.com/api/timedtext?v=x&kind=asr&lang=de&fmt=vtt"
                         .into(),
+                    auto_generated: true,
                 },
             ]
         );

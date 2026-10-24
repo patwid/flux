@@ -112,6 +112,8 @@ pub struct SubtitleTrack {
     pub lang: String,
     /// URL of the WebVTT file.
     pub url: String,
+    /// Made by speech recognition.
+    pub auto_generated: bool,
 }
 
 /// An item in search results.

@@ -71,6 +71,7 @@ fn subtitle_tracks() -> Vec<SubtitleTrack> {
         name: name.into(),
         lang: lang.into(),
         url: format!("demo-subtitles-{lang}"),
+        auto_generated: name.contains("auto-generated"),
     })
     .collect()
 }
