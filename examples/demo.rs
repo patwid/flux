@@ -115,6 +115,7 @@ fn main() {
                 .filter(|v| v.id != video.id)
                 .cloned()
                 .collect(),
+            comments: Default::default(),
         });
     }
     backend = backend.with_feed(&channel.id, videos.clone());

@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 
 use super::{Backend, BackendError, Downloader, ProgressFn, Result};
-use crate::core::model::{Channel, DownloadKind, SearchItem, Streams, Video, VideoDetails};
+use crate::core::model::{
+    Channel, CommentPage, DownloadKind, SearchItem, Streams, Video, VideoDetails,
+};
 
 /// A backend serving canned data. Unknown ids yield an error.
 #[derive(Default)]
@@ -15,6 +17,8 @@ pub struct FakeBackend {
     pub streams: HashMap<String, Streams>,
     pub channels: HashMap<String, (Channel, Vec<Video>)>,
     pub feeds: HashMap<String, Vec<Video>>,
+    /// Comment pages by token.
+    pub comments: HashMap<String, CommentPage>,
 }
 
 impl FakeBackend {
@@ -40,6 +44,11 @@ impl FakeBackend {
 
     pub fn with_feed(mut self, channel_id: &str, videos: Vec<Video>) -> Self {
         self.feeds.insert(channel_id.into(), videos);
+        self
+    }
+
+    pub fn with_comments(mut self, token: &str, page: CommentPage) -> Self {
+        self.comments.insert(token.into(), page);
         self
     }
 }
@@ -70,6 +79,10 @@ impl Backend for FakeBackend {
 
     async fn channel_feed(&self, channel_id: &str) -> Result<Vec<Video>> {
         lookup(&self.feeds, channel_id)
+    }
+
+    async fn comments(&self, token: &str) -> Result<CommentPage> {
+        lookup(&self.comments, token)
     }
 }
 

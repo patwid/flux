@@ -119,6 +119,32 @@ pub struct VideoDetails {
     pub view_count: Option<u64>,
     pub like_count: Option<u32>,
     pub related: Vec<Video>,
+    /// The comment count and the token of the first page; no comments yet.
+    pub comments: CommentPage,
+}
+
+/// A comment under a video.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Comment {
+    /// Missing for some comments, e.g. of deleted accounts.
+    pub author: Option<Channel>,
+    pub text: String,
+    pub published: Option<DateTime<Utc>>,
+    pub like_count: Option<u32>,
+    pub reply_count: u32,
+    pub pinned: bool,
+    /// Written by the channel that uploaded the video.
+    pub by_owner: bool,
+}
+
+/// A page of comments.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CommentPage {
+    pub comments: Vec<Comment>,
+    /// Total number of comments, if known.
+    pub count: Option<u64>,
+    /// Token to fetch the next page with; `None` on the last page.
+    pub next: Option<String>,
 }
 
 /// What the player should open.

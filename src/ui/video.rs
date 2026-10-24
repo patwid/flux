@@ -52,6 +52,8 @@ pub struct Init {
     pub subscribed: bool,
 }
 
+// See `PageMsg`.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Msg {
     Details(Result<VideoDetails, String>),
@@ -645,6 +647,7 @@ mod tests {
             view_count: Some(1),
             like_count: None,
             related: vec![video("r0"), video("r1")],
+            comments: Default::default(),
         }
     }
 

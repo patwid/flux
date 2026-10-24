@@ -7,7 +7,7 @@ pub mod visionos;
 use async_trait::async_trait;
 
 use super::feed;
-use super::model::{Channel, DownloadKind, SearchItem, Streams, Video, VideoDetails};
+use super::model::{Channel, CommentPage, DownloadKind, SearchItem, Streams, Video, VideoDetails};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BackendError {
@@ -32,6 +32,8 @@ pub trait Backend: Send + Sync {
     async fn channel(&self, channel_id: &str) -> Result<(Channel, Vec<Video>)>;
     /// The latest uploads of a channel from its RSS feed.
     async fn channel_feed(&self, channel_id: &str) -> Result<Vec<Video>>;
+    /// The page of comments behind `token` (see [`CommentPage::next`]).
+    async fn comments(&self, token: &str) -> Result<CommentPage>;
 }
 
 /// Reports download progress from 0 to 1.

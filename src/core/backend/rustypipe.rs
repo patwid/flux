@@ -8,7 +8,8 @@ use rustypipe::model::{self as rp, richtext::ToPlaintext};
 use super::{Backend, BackendError, Downloader, ProgressFn, Result, visionos};
 use crate::core::model::SegmentRanges;
 use crate::core::model::{
-    AudioStream, Channel, DownloadKind, SearchItem, Streams, Video, VideoDetails, VideoStream,
+    AudioStream, Channel, Comment, CommentPage, DownloadKind, SearchItem, Streams, Video,
+    VideoDetails, VideoStream,
 };
 use crate::core::streams::DEFAULT_MAX_HEIGHT;
 use crate::core::{download, feed};
@@ -80,6 +81,7 @@ impl Backend for RustyPipeBackend {
                 .into_iter()
                 .map(video_from_item)
                 .collect(),
+            comments: comment_page(d.top_comments),
         })
     }
 
@@ -140,6 +142,11 @@ impl Backend for RustyPipeBackend {
             .bytes()
             .await?;
         feed::parse_channel_feed(&xml).map_err(|e| BackendError::Other(e.to_string()))
+    }
+
+    async fn comments(&self, token: &str) -> Result<CommentPage> {
+        let page = self.client.query().video_comments(token, None).await?;
+        Ok(comment_page(page))
     }
 }
 
@@ -307,6 +314,26 @@ fn search_item(item: rp::YouTubeItem) -> Option<SearchItem> {
     }
 }
 
+fn comment_page(p: rp::paginator::Paginator<rp::Comment>) -> CommentPage {
+    CommentPage {
+        comments: p
+            .items
+            .into_iter()
+            .map(|c| Comment {
+                author: c.author.map(channel_from_tag),
+                text: c.text.to_plaintext(),
+                published: c.publish_date.and_then(to_chrono),
+                like_count: c.like_count,
+                reply_count: c.reply_count,
+                pinned: c.pinned,
+                by_owner: c.by_owner,
+            })
+            .collect(),
+        count: p.count,
+        next: p.ctoken,
+    }
+}
+
 fn video_stream(s: rp::VideoStream) -> VideoStream {
     VideoStream {
         url: s.url,
@@ -433,6 +460,63 @@ mod tests {
         assert_eq!(search_item(playlist), None);
     }
 
+    fn comment_json() -> serde_json::Value {
+        json!({
+            "id": "Ugy1",
+            "text": [{"Text": {"text": "Great "}}, {"Web": {"text": "link", "url": "https://x.org"}}],
+            "author": {
+                "id": "UC9",
+                "name": "@viewer",
+                "avatar": [{"url": "https://yt3.ggpht.com/a.jpg", "width": 48, "height": 48}],
+                "verification": "none",
+                "subscriber_count": null
+            },
+            "publish_date": "2026-10-20T14:00:00Z",
+            "publish_date_txt": "4 days ago",
+            "like_count": 12,
+            "reply_count": 3,
+            "replies": {"count": 3, "items": [], "ctoken": "r", "endpoint": "next"},
+            "by_owner": false,
+            "pinned": true,
+            "hearted": false
+        })
+    }
+
+    #[test]
+    fn maps_comment_page() {
+        let mut deleted = comment_json();
+        deleted["author"] = serde_json::Value::Null;
+        let page: rp::paginator::Paginator<rp::Comment> = serde_json::from_value(json!({
+            "count": 1200,
+            "items": [comment_json(), deleted],
+            "ctoken": "next-page",
+            "endpoint": "next"
+        }))
+        .unwrap();
+
+        let page = comment_page(page);
+
+        assert_eq!(page.count, Some(1200));
+        assert_eq!(page.next.as_deref(), Some("next-page"));
+        assert_eq!(
+            page.comments[0],
+            Comment {
+                author: Some(Channel {
+                    id: "UC9".into(),
+                    name: "@viewer".into(),
+                    avatar_url: Some("https://yt3.ggpht.com/a.jpg".into()),
+                }),
+                text: "Great https://x.org".into(),
+                published: Some("2026-10-20T14:00:00Z".parse().unwrap()),
+                like_count: Some(12),
+                reply_count: 3,
+                pinned: true,
+                by_owner: false,
+            }
+        );
+        assert_eq!(page.comments[1].author, None);
+    }
+
     #[test]
     fn best_thumbnail_of_empty_list_is_none() {
         assert_eq!(best_thumbnail(&[]), None);
@@ -446,6 +530,18 @@ mod tests {
         let backend = RustyPipeBackend::new(dir.path()).unwrap();
         let items = backend.search("kurzgesagt").await.unwrap();
         assert!(!items.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn comments_real_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = RustyPipeBackend::new(dir.path()).unwrap();
+        let details = backend.video_details("dQw4w9WgXcQ").await.unwrap();
+        let token = details.comments.next.expect("comments token");
+        let page = backend.comments(&token).await.unwrap();
+        assert!(!page.comments.is_empty());
+        assert!(page.next.is_some());
     }
 
     #[tokio::test]
