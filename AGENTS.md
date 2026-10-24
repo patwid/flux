@@ -31,7 +31,7 @@ contributing to the code, human or agent.
 
 | Concern       | Choice                                                                 |
 |---------------|------------------------------------------------------------------------|
-| Language      | Rust (stable, edition 2021+)                                            |
+| Language      | Rust (stable, edition 2024)                                             |
 | UI            | GTK4 and libadwaita via `relm4` (The Elm Architecture)                    |
 | Extraction    | `rustypipe` (YouTube internal API, pure Rust)                           |
 | Subscriptions | YouTube channel RSS (`https://www.youtube.com/feeds/videos.xml?channel_id=…`) |
@@ -50,6 +50,7 @@ without a display.
 ```
 src/
   main.rs              # app bootstrap only
+  lib.rs               # crate root (so integration tests in tests/ can use it)
   core/                # no gtk imports allowed
     model.rs           # domain types: Video, Channel, Stream, HistoryEntry, Download…
     backend.rs         # trait Backend (search, video details, streams, channel); RustyPipeBackend impl
@@ -91,8 +92,8 @@ Each change follows **red → green → refactor**:
 2. **Green**: write the minimal implementation that makes the test pass. Run the
    test and confirm it passes.
 3. **Refactor**: clean up while all tests stay green.
-4. Run the full suite (`cargo test`) plus `cargo clippy -- -D warnings` and
-   `cargo fmt --check` before committing.
+4. Run `./scripts/check.sh` (fmt check, clippy with `-D warnings`, full test suite)
+   before committing. If it fails, do not commit.
 
 The tests are the specification of the behaviour. The implementation is validated
 by them, not by manual inspection alone.
