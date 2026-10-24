@@ -59,6 +59,7 @@ src/
     feed.rs            # RSS/Atom parsing → Vec<Video>; feed aggregation and sorting
     db.rs              # rusqlite: migrations, subscriptions, history, downloads repos
     download.rs        # download manager state machine (queued/running/done/failed/cancelled)
+  player.rs            # GStreamer playback engine (no gtk; sinks are injected)
   ui/                  # relm4 components
     app.rs             # root: AdwApplicationWindow, navigation, breakpoints
     search.rs  feed.rs  subscriptions.rs  history.rs  downloads.rs  player.rs  video_detail.rs
