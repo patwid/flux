@@ -7,11 +7,12 @@ use super::channel::{self, ChannelPage};
 use super::downloads::{self, DownloadsPage};
 use super::feed::FeedPage;
 use super::history::{self, HistoryPage};
+use super::replies::RepliesPage;
 use super::search::{self, SearchPage};
 use super::subscriptions::{self, SubscriptionsPage};
 use super::video::{self, VideoPage};
 use super::{Services, log_db_error};
-use crate::core::model::{Channel, DownloadKind, Video};
+use crate::core::model::{Channel, Comment, DownloadKind, Video};
 
 /// Windows narrower than this use the mobile layout (bottom view switcher).
 const NARROW_WIDTH_SP: f64 = 550.0;
@@ -33,6 +34,7 @@ pub struct App {
 enum Page {
     Video(Controller<VideoPage>),
     Channel(Controller<ChannelPage>),
+    Replies(Controller<RepliesPage>),
 }
 
 #[derive(Debug)]
@@ -41,6 +43,7 @@ pub enum Msg {
     OpenChannel(Channel),
     Download(Video, DownloadKind),
     SubscriptionsChanged,
+    OpenReplies(Comment),
     Popped(adw::NavigationPage),
 }
 
@@ -69,6 +72,7 @@ impl From<video::Output> for Msg {
             video::Output::OpenChannel(c) => Msg::OpenChannel(c),
             video::Output::Download(v, kind) => Msg::Download(v, kind),
             video::Output::SubscriptionsChanged => Msg::SubscriptionsChanged,
+            video::Output::OpenReplies(c) => Msg::OpenReplies(c),
         }
     }
 }
@@ -202,6 +206,7 @@ impl Component for App {
                 self.history.emit(history::Input::Reload);
             }
             Msg::OpenChannel(channel) => self.open_channel(channel, &sender),
+            Msg::OpenReplies(comment) => self.open_replies(comment),
             Msg::Download(video, kind) => {
                 self.toast(&format!("Downloading “{}”", video.title));
                 self.downloads.emit(downloads::Input::Add(video, kind));
@@ -252,10 +257,18 @@ impl App {
         self.push(&title, Page::Channel(controller));
     }
 
+    fn open_replies(&mut self, comment: Comment) {
+        let controller = RepliesPage::builder()
+            .launch((self.services.clone(), comment))
+            .detach();
+        self.push("Replies", Page::Replies(controller));
+    }
+
     fn push(&mut self, title: &str, page: Page) {
         let widget: gtk::Widget = match &page {
             Page::Video(c) => c.widget().clone().upcast(),
             Page::Channel(c) => c.widget().clone().upcast(),
+            Page::Replies(c) => c.widget().clone().upcast(),
         };
         let nav_page = adw::NavigationPage::new(&widget, title);
         self.navigation.push(&nav_page);

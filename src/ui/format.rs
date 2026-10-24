@@ -119,24 +119,27 @@ pub fn download_status(download: &Download, progress: Option<f64>) -> String {
     }
 }
 
-/// Secondary line under a comment: pinned, age, likes and replies.
+/// Secondary line under a comment: pinned, age and likes.
 pub fn comment_meta(comment: &Comment, now: DateTime<Utc>) -> String {
-    let counted = |n: u64, one: &str, many: &str| {
-        let unit = if n == 1 { one } else { many };
-        (n > 0).then(|| format!("{} {unit}", count(n)))
-    };
+    let likes = comment.like_count.filter(|&n| n > 0).map(|n| {
+        let unit = if n == 1 { "like" } else { "likes" };
+        format!("{} {unit}", count(n.into()))
+    });
     [
         comment.pinned.then(|| "Pinned".to_string()),
         comment.published.map(|p| relative_date(p, now)),
-        comment
-            .like_count
-            .and_then(|n| counted(n.into(), "like", "likes")),
-        counted(comment.reply_count.into(), "reply", "replies"),
+        likes,
     ]
     .into_iter()
     .flatten()
     .collect::<Vec<_>>()
     .join(" · ")
+}
+
+/// The number of replies to a comment, e.g. `3 replies`.
+pub fn replies(n: u32) -> String {
+    let unit = if n == 1 { "reply" } else { "replies" };
+    format!("{} {unit}", count(n.into()))
 }
 
 /// Heading of the comments section, with the count if known.
@@ -279,20 +282,26 @@ mod tests {
             pinned: true,
             by_owner: false,
         };
+        // Replies have their own button.
         assert_eq!(
             comment_meta(&comment, now),
-            "Pinned · 4 days ago · 1.2K likes · 3 replies"
+            "Pinned · 4 days ago · 1.2K likes"
         );
 
         comment.pinned = false;
         comment.like_count = Some(1);
-        comment.reply_count = 1;
-        assert_eq!(comment_meta(&comment, now), "4 days ago · 1 like · 1 reply");
+        assert_eq!(comment_meta(&comment, now), "4 days ago · 1 like");
 
         comment.published = None;
         comment.like_count = Some(0);
-        comment.reply_count = 0;
         assert_eq!(comment_meta(&comment, now), "");
+    }
+
+    #[test]
+    fn counts_replies() {
+        assert_eq!(replies(1), "1 reply");
+        assert_eq!(replies(3), "3 replies");
+        assert_eq!(replies(1_234), "1.2K replies");
     }
 
     #[test]

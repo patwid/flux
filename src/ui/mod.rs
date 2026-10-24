@@ -8,6 +8,7 @@ pub mod format;
 pub mod history;
 pub mod images;
 pub mod player_view;
+pub mod replies;
 pub mod search;
 pub mod subscriptions;
 pub mod video;

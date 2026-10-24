@@ -1,5 +1,7 @@
 //! Comment lists: comments loaded page by page, and the widget showing them.
 
+use std::rc::Rc;
+
 use relm4::adw::prelude::*;
 use relm4::{adw, gtk};
 
@@ -66,11 +68,15 @@ pub struct CommentList {
     more: gtk::Button,
     /// Number of comments in `list`.
     shown: usize,
+    /// Opens the replies to the comment with the given index.
+    on_replies: Option<Rc<dyn Fn(usize)>>,
 }
 
 impl CommentList {
-    /// `on_more` is called when the user asks for the next page.
-    pub fn new(on_more: impl Fn() + 'static) -> Self {
+    /// `on_more` is called when the user asks for the next page, and
+    /// `on_replies` with a comment's index to open its replies; without it,
+    /// replies cannot be opened.
+    pub fn new(on_more: impl Fn() + 'static, on_replies: Option<impl Fn(usize) + 'static>) -> Self {
         let root = gtk::Box::new(gtk::Orientation::Vertical, 12);
         let list = widgets::boxed_list();
         let spinner = adw::Spinner::new();
@@ -99,6 +105,7 @@ impl CommentList {
             error,
             more,
             shown: 0,
+            on_replies: on_replies.map(|f| Rc::new(f) as Rc<dyn Fn(usize)>),
         };
         view.update(&Comments::default());
         view
@@ -110,8 +117,12 @@ impl CommentList {
 
     /// Shows the current state of `comments`, which only ever gain items.
     pub fn update(&mut self, comments: &Comments) {
-        for comment in &comments.items[self.shown..] {
-            self.list.append(&comment_row(comment));
+        for (index, comment) in comments.items.iter().enumerate().skip(self.shown) {
+            let on_replies = self
+                .on_replies
+                .clone()
+                .map(|f| Box::new(move || f(index)) as Box<dyn Fn()>);
+            self.list.append(&comment_row(comment, on_replies));
         }
         self.shown = comments.items.len();
 
@@ -134,8 +145,9 @@ impl CommentList {
     }
 }
 
-/// A non-activatable list row showing a comment and its author.
-pub fn comment_row(comment: &Comment) -> gtk::ListBoxRow {
+/// A non-activatable list row showing a comment and its author, with a
+/// button calling `on_replies` if there are replies.
+pub fn comment_row(comment: &Comment, on_replies: Option<Box<dyn Fn()>>) -> gtk::ListBoxRow {
     let author = comment.author.as_ref();
     let name = author.map_or("Unknown", |a| a.name.as_str());
     // Initials of the handle, not "@".
@@ -172,6 +184,23 @@ pub fn comment_row(comment: &Comment) -> gtk::ListBoxRow {
     body.append(&author);
     body.append(&text);
     body.append(&meta);
+    if let Some(on_replies) = on_replies
+        && comment.replies.is_some()
+        && comment.reply_count > 0
+    {
+        let content = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        content.append(&gtk::Label::new(Some(&format::replies(
+            comment.reply_count,
+        ))));
+        content.append(&gtk::Image::from_icon_name("go-next-symbolic"));
+        let button = gtk::Button::builder()
+            .child(&content)
+            .halign(gtk::Align::Start)
+            .css_classes(["flat", "replies"])
+            .build();
+        button.connect_clicked(move |_| on_replies());
+        body.append(&button);
+    }
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     content.set_margin_top(12);
     content.set_margin_bottom(12);

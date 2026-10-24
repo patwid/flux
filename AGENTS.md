@@ -18,7 +18,7 @@ contributing to the code, human or agent.
   3. **Subscriptions**: subscribe to channels and get an aggregated feed from RSS.
   4. **History**: keep a watch history with resume position, and let the user clear it.
   5. **Download**: download videos or audio to disk, with progress and cancel. Downloaded items can be played offline. Video downloads include their subtitles, saved next to the video as `.vtt` files.
-  6. **Comments**: show a video's top comments on its page, loaded page by page and only when the user opens them.
+  6. **Comments**: show a video's top comments on its page, loaded page by page and only when the user opens them. The replies to a comment open on their own page (one level, as on YouTube).
 
 ### Non-goals (v1)
 
@@ -26,7 +26,7 @@ contributing to the code, human or agent.
 - Importing NewPipe or OPML subscriptions
 - Flatpak packaging
 - Sites other than YouTube. The backend is still kept behind a trait, so other sites can be added later.
-- Comment replies, playlists, and account login
+- Writing comments, playlists, and account login
 
 ## Technology
 
@@ -69,7 +69,8 @@ src/
   ui/                  # relm4 components, each with a pure `State` + `update`
     app.rs             # root window: navigation, adaptive layouts, page wiring
     feed.rs search.rs subscriptions.rs history.rs downloads.rs   # top-level sections
-    video.rs channel.rs                                          # pushed pages
+    video.rs channel.rs replies.rs                               # pushed pages
+    comments.rs        # paged comment list state and widget (video and replies pages)
     player_view.rs     # video widget and controls
     format.rs widgets.rs images.rs aspect.rs style.css           # shared helpers
 ```

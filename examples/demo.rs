@@ -91,10 +91,11 @@ fn subtitle_cues(prefix: &str) -> Vec<Cue> {
         .collect()
 }
 
-/// Two pages of generated comments, the first one by the channel and pinned.
-fn comment_pages(channel: &Channel) -> [CommentPage; 2] {
-    let comment = |i: u32| Comment {
-        author: Some(if i == 0 {
+/// Generated comments by page token: two pages of comments, the first
+/// one by the channel and pinned, and pages of replies.
+fn comment_pages(channel: &Channel) -> Vec<(String, CommentPage)> {
+    let author = |i: u32| {
+        Some(if i == 0 {
             channel.clone()
         } else {
             Channel {
@@ -102,7 +103,11 @@ fn comment_pages(channel: &Channel) -> [CommentPage; 2] {
                 name: format!("@viewer{i}"),
                 avatar_url: None,
             }
-        }),
+        })
+    };
+    let replies = |i: u32| if i == 0 { 12 } else { i % 4 };
+    let comment = |i: u32| Comment {
+        author: author(i),
         text: if i % 3 == 1 {
             "A longer comment that wraps over several lines on a phone, to check that \
              the text is laid out properly next to the avatar."
@@ -112,23 +117,55 @@ fn comment_pages(channel: &Channel) -> [CommentPage; 2] {
         },
         published: Some(Utc::now() - chrono::Duration::hours(i64::from(i * 7))),
         like_count: Some(1_500 / (i + 1)),
-        reply_count: i % 4,
-        replies: None,
+        reply_count: replies(i),
+        replies: (replies(i) > 0).then(|| format!("demo-replies-{i}-0")),
         pinned: i == 0,
         by_owner: i == 0,
     };
-    [
-        CommentPage {
-            comments: (0..10).map(comment).collect(),
-            count: Some(15),
-            next: Some("demo-comments-2".into()),
-        },
-        CommentPage {
-            comments: (10..15).map(comment).collect(),
-            count: Some(15),
-            next: None,
-        },
-    ]
+    let reply = |i: u32, n: u32| Comment {
+        author: author(if n.is_multiple_of(2) { 20 + n } else { 0 }),
+        text: format!("Reply number {n} to comment {i}."),
+        published: Some(Utc::now() - chrono::Duration::minutes(i64::from(n * 13))),
+        like_count: Some(n),
+        reply_count: 0,
+        replies: None,
+        pinned: false,
+        by_owner: !n.is_multiple_of(2),
+    };
+    let mut pages = vec![
+        (
+            "demo-comments-1".to_string(),
+            CommentPage {
+                comments: (0..10).map(comment).collect(),
+                count: Some(15),
+                next: Some("demo-comments-2".into()),
+            },
+        ),
+        (
+            "demo-comments-2".to_string(),
+            CommentPage {
+                comments: (10..15).map(comment).collect(),
+                count: Some(15),
+                next: None,
+            },
+        ),
+    ];
+    // Replies in pages of ten.
+    for i in 0..15 {
+        let total = replies(i);
+        for (page, start) in (0..total).step_by(10).enumerate() {
+            let end = (start + 10).min(total);
+            pages.push((
+                format!("demo-replies-{i}-{page}"),
+                CommentPage {
+                    comments: (start..end).map(|n| reply(i, n)).collect(),
+                    count: Some(total.into()),
+                    next: (end < total).then(|| format!("demo-replies-{i}-{}", page + 1)),
+                },
+            ));
+        }
+    }
+    pages
 }
 
 fn main() {
@@ -202,10 +239,9 @@ fn main() {
     backend = backend
         .with_subtitles("demo-subtitles-en", subtitle_cues("Subtitle"))
         .with_subtitles("demo-subtitles-de", subtitle_cues("Untertitel"));
-    let [first, second] = comment_pages(&channel);
-    backend = backend
-        .with_comments("demo-comments-1", first)
-        .with_comments("demo-comments-2", second);
+    for (token, page) in comment_pages(&channel) {
+        backend = backend.with_comments(&token, page);
+    }
     backend = backend.with_feed(&channel.id, videos.clone());
     backend = backend.with_channel(channel.clone(), videos.clone());
     let mut results: Vec<_> = videos.iter().cloned().map(SearchItem::Video).collect();

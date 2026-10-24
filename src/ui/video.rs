@@ -12,7 +12,8 @@ use super::comments::{CommentList, Comments};
 use super::player_view::{self, PlayerView};
 use super::{Services, format, images, log_db_error, widgets};
 use crate::core::model::{
-    Channel, CommentPage, DownloadKind, PlaybackSource, Streams, SubtitleTrack, Video, VideoDetails,
+    Channel, Comment, CommentPage, DownloadKind, PlaybackSource, Streams, SubtitleTrack, Video,
+    VideoDetails,
 };
 use crate::core::subtitles::{self, Cue};
 use crate::core::{backend, streams};
@@ -90,6 +91,8 @@ pub enum Msg {
     ShowComments,
     MoreComments,
     Comments(Result<CommentPage, String>),
+    /// Opens the replies to the comment with this index.
+    OpenReplies(usize),
     /// Shows the subtitle track with this index, or none.
     SelectSubtitles(Option<usize>),
     /// The cues of the track with this index were loaded.
@@ -129,6 +132,7 @@ pub enum Effect {
     Download(Video, DownloadKind),
     OpenVideo(Video),
     OpenChannel(Channel),
+    OpenReplies(Comment),
 }
 
 /// Where to resume a video watched up to `saved` seconds. Videos watched to
@@ -230,6 +234,13 @@ impl State {
             Msg::ShowComments => {}
             Msg::MoreComments => return self.load_comments(),
             Msg::Comments(result) => self.comments.loaded(result),
+            Msg::OpenReplies(index) => {
+                if let Some(comment) = self.comments.items.get(index)
+                    && comment.replies.is_some()
+                {
+                    return vec![Effect::OpenReplies(comment.clone())];
+                }
+            }
             // Also the menu echoing a change made here.
             Msg::SelectSubtitles(index) if index == self.subtitles.selected => {}
             Msg::SelectSubtitles(None) => {
@@ -352,6 +363,7 @@ pub enum Output {
     OpenChannel(Channel),
     Download(Video, DownloadKind),
     SubscriptionsChanged,
+    OpenReplies(Comment),
 }
 
 #[relm4::component(pub)]
@@ -599,10 +611,16 @@ impl Component for VideoPage {
             services,
             player,
             related: widgets::boxed_list(),
-            comment_list: CommentList::new({
-                let sender = sender.clone();
-                move || sender.input(PageMsg::State(Msg::MoreComments))
-            }),
+            comment_list: CommentList::new(
+                {
+                    let sender = sender.clone();
+                    move || sender.input(PageMsg::State(Msg::MoreComments))
+                },
+                Some({
+                    let sender = sender.clone();
+                    move |index| sender.input(PageMsg::State(Msg::OpenReplies(index)))
+                }),
+            ),
             avatar: adw::Avatar::default(),
             fullscreen: false,
             narrow: false,
@@ -787,6 +805,9 @@ impl VideoPage {
                 }
                 Effect::OpenChannel(channel) => {
                     let _ = sender.output(Output::OpenChannel(channel));
+                }
+                Effect::OpenReplies(comment) => {
+                    let _ = sender.output(Output::OpenReplies(comment));
                 }
             }
         }
@@ -1141,6 +1162,28 @@ mod tests {
         assert_eq!(state.comments.items, [comment("a"), comment("b")]);
         assert_eq!(state.comments.next, None);
         assert!(state.update(Msg::MoreComments).is_empty());
+    }
+
+    #[test]
+    fn opens_replies_of_comments_that_have_some() {
+        let mut state = with_comments();
+        state.update(Msg::ShowComments);
+        let with_replies = Comment {
+            reply_count: 2,
+            replies: Some("r".into()),
+            ..comment("b")
+        };
+        state.update(Msg::Comments(Ok(CommentPage {
+            comments: vec![comment("a"), with_replies.clone()],
+            ..page(&[], None)
+        })));
+
+        assert_eq!(
+            state.update(Msg::OpenReplies(1)),
+            [Effect::OpenReplies(with_replies)]
+        );
+        assert!(state.update(Msg::OpenReplies(0)).is_empty(), "no replies");
+        assert!(state.update(Msg::OpenReplies(2)).is_empty());
     }
 
     #[test]

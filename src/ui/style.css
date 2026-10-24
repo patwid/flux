@@ -19,3 +19,11 @@
 .player-subtitle.large {
   font-size: 1.6em;
 }
+
+/* A link-like button under a comment, aligned with its text. */
+button.replies {
+  color: var(--accent-color);
+  font-weight: normal;
+  padding: 4px 6px;
+  margin-left: -6px;
+}
