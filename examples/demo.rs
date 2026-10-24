@@ -113,6 +113,7 @@ fn comment_pages(channel: &Channel) -> [CommentPage; 2] {
         published: Some(Utc::now() - chrono::Duration::hours(i64::from(i * 7))),
         like_count: Some(1_500 / (i + 1)),
         reply_count: i % 4,
+        replies: None,
         pinned: i == 0,
         by_owner: i == 0,
     };

@@ -1154,6 +1154,7 @@ mod tests {
             published: None,
             like_count: None,
             reply_count: 0,
+            replies: None,
             pinned: false,
             by_owner: false,
         }

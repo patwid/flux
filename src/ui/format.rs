@@ -275,6 +275,7 @@ mod tests {
             published: Some(now - chrono::Duration::days(4)),
             like_count: Some(1_234),
             reply_count: 3,
+            replies: None,
             pinned: true,
             by_owner: false,
         };

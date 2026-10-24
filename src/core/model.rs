@@ -153,6 +153,8 @@ pub struct Comment {
     pub published: Option<DateTime<Utc>>,
     pub like_count: Option<u32>,
     pub reply_count: u32,
+    /// Token of the first page of replies, fetched like a [`CommentPage`].
+    pub replies: Option<String>,
     pub pinned: bool,
     /// Written by the channel that uploaded the video.
     pub by_owner: bool,

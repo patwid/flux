@@ -378,6 +378,7 @@ fn comment_page(p: rp::paginator::Paginator<rp::Comment>) -> CommentPage {
                 published: c.publish_date.and_then(to_chrono),
                 like_count: c.like_count,
                 reply_count: c.reply_count,
+                replies: c.replies.ctoken,
                 pinned: c.pinned,
                 by_owner: c.by_owner,
             })
@@ -576,6 +577,7 @@ mod tests {
                 published: Some("2026-10-20T14:00:00Z".parse().unwrap()),
                 like_count: Some(12),
                 reply_count: 3,
+                replies: Some("r".into()),
                 pinned: true,
                 by_owner: false,
             }
@@ -649,6 +651,21 @@ mod tests {
         let page = backend.comments(&token).await.unwrap();
         assert!(!page.comments.is_empty());
         assert!(page.next.is_some());
+
+        let comment = page
+            .comments
+            .iter()
+            .find(|c| c.reply_count > 0)
+            .expect("a comment with replies");
+        let replies = backend
+            .comments(comment.replies.as_deref().expect("replies token"))
+            .await
+            .unwrap();
+        assert!(!replies.comments.is_empty());
+        assert!(
+            replies.comments.iter().all(|r| r.replies.is_none()),
+            "one level"
+        );
     }
 
     #[tokio::test]
