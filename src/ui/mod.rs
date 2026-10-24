@@ -1,5 +1,6 @@
 pub mod app;
 pub mod aspect;
+pub mod channel;
 pub mod feed;
 pub mod format;
 pub mod player_view;
