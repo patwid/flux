@@ -3,6 +3,7 @@
 use std::path::PathBuf;
 
 use relm4::adw::prelude::*;
+use relm4::gtk::gio;
 use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, RelmWidgetExt,
     adw, gtk,
@@ -405,7 +406,13 @@ impl Component for VideoPage {
                     gtk::glib::Propagation::Stop
                 },
             },
-            add_top_bar = &adw::HeaderBar {},
+            add_top_bar = &adw::HeaderBar {
+                pack_end = &gtk::MenuButton {
+                    set_icon_name: "folder-download-symbolic",
+                    set_tooltip_text: Some("Download"),
+                    set_menu_model: Some(&download_menu()),
+                },
+            },
 
             #[wrap(Some)]
             set_content = &adw::BreakpointBin {
@@ -481,40 +488,6 @@ impl Component for VideoPage {
                         #[watch]
                         set_sensitive: matches!(model.state.details, Load::Loaded(_)),
                         connect_clicked => PageMsg::State(Msg::ToggleSubscribe),
-                    },
-                },
-            },
-
-            gtk::Box {
-                set_spacing: 6,
-
-                gtk::MenuButton {
-                    set_icon_name: "folder-download-symbolic",
-                    set_tooltip_text: Some("Download"),
-                    add_css_class: "circular",
-
-                    #[wrap(Some)]
-                    set_popover: download_popover = &gtk::Popover {
-                        gtk::Box {
-                            set_orientation: gtk::Orientation::Vertical,
-
-                            gtk::Button {
-                                set_label: "Download Video",
-                                add_css_class: "flat",
-                                connect_clicked[sender, download_popover] => move |_| {
-                                    download_popover.popdown();
-                                    sender.input(PageMsg::State(Msg::Download(DownloadKind::Video)));
-                                },
-                            },
-                            gtk::Button {
-                                set_label: "Download Audio",
-                                add_css_class: "flat",
-                                connect_clicked[sender, download_popover] => move |_| {
-                                    download_popover.popdown();
-                                    sender.input(PageMsg::State(Msg::Download(DownloadKind::Audio)));
-                                },
-                            },
-                        },
                     },
                 },
             },
@@ -612,6 +585,7 @@ impl Component for VideoPage {
         let comment_view = model.comment_list.widget();
         let avatar = &model.avatar;
         let widgets = view_output!();
+        add_actions(&root, &sender);
         add_layouts(&widgets.layouts);
         widgets.layouts.set_child("player", model.player.widget());
         widgets.layouts.set_child("details", &widgets.details);
@@ -797,6 +771,30 @@ impl VideoPage {
             }
         }
     }
+}
+
+/// The download options, activating the page's `download` action.
+fn download_menu() -> gio::Menu {
+    let menu = gio::Menu::new();
+    menu.append(Some("Download _Video"), Some("page.download::video"));
+    menu.append(Some("Download _Audio"), Some("page.download::audio"));
+    menu
+}
+
+/// Adds the `page` actions to the page.
+fn add_actions(root: &adw::ToolbarView, sender: &ComponentSender<VideoPage>) {
+    let actions = gio::SimpleActionGroup::new();
+    let download = gio::SimpleAction::new("download", Some(gtk::glib::VariantTy::STRING));
+    let input = sender.input_sender().clone();
+    download.connect_activate(move |_, kind| {
+        let kind = match kind.and_then(|k| k.str()) {
+            Some("audio") => DownloadKind::Audio,
+            _ => DownloadKind::Video,
+        };
+        input.emit(PageMsg::State(Msg::Download(kind)));
+    });
+    actions.add_action(&download);
+    root.insert_action_group("page", Some(&actions));
 }
 
 /// Adds the layouts named by [`layout_name`], with slots for the player and
