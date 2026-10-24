@@ -142,6 +142,15 @@ pub fn replies(n: u32) -> String {
     format!("{} {unit}", count(n.into()))
 }
 
+/// A notice that the user subscribed to or unsubscribed from a channel.
+pub fn subscription(channel: &str, subscribed: bool) -> String {
+    if subscribed {
+        format!("Subscribed to “{channel}”")
+    } else {
+        format!("Unsubscribed from “{channel}”")
+    }
+}
+
 /// The feed banner after channels failed to refresh.
 pub fn failed_channels(n: usize) -> String {
     let unit = if n == 1 { "channel" } else { "channels" };
@@ -159,6 +168,12 @@ pub fn comments_title(count: Option<u64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_subscription_changes() {
+        assert_eq!(subscription("Chan", true), "Subscribed to “Chan”");
+        assert_eq!(subscription("Chan", false), "Unsubscribed from “Chan”");
+    }
 
     #[test]
     fn formats_failed_channels() {

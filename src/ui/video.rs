@@ -132,6 +132,8 @@ pub enum Effect {
     },
     Subscribe(Channel),
     Unsubscribe(String),
+    /// Tells the user what happened.
+    Toast(String),
     Download(Video, DownloadKind),
     OpenVideo(Video),
     OpenChannel(Channel),
@@ -229,11 +231,15 @@ impl State {
             Msg::ToggleSubscribe => {
                 if let Load::Loaded(details) = &self.details {
                     self.subscribed = !self.subscribed;
-                    return vec![if self.subscribed {
-                        Effect::Subscribe(details.channel.clone())
-                    } else {
-                        Effect::Unsubscribe(details.channel.id.clone())
-                    }];
+                    let channel = &details.channel;
+                    return vec![
+                        if self.subscribed {
+                            Effect::Subscribe(channel.clone())
+                        } else {
+                            Effect::Unsubscribe(channel.id.clone())
+                        },
+                        Effect::Toast(format::subscription(&channel.name, self.subscribed)),
+                    ];
                 }
             }
             Msg::Download(kind) => return vec![Effect::Download(self.video.clone(), kind)],
@@ -385,6 +391,7 @@ pub enum Output {
     Download(Video, DownloadKind),
     SubscriptionsChanged,
     OpenReplies(Comment),
+    Toast(String),
 }
 
 #[relm4::component(pub)]
@@ -749,6 +756,9 @@ impl VideoPage {
                 Effect::Unsubscribe(id) => {
                     log_db_error(self.services.db.unsubscribe(&id));
                     let _ = sender.output(Output::SubscriptionsChanged);
+                }
+                Effect::Toast(text) => {
+                    let _ = sender.output(Output::Toast(text));
                 }
                 Effect::Download(video, kind) => {
                     let _ = sender.output(Output::Download(video, kind));
@@ -1146,12 +1156,18 @@ mod tests {
         state.update(Msg::Details(Ok(details())));
         assert_eq!(
             state.update(Msg::ToggleSubscribe),
-            [Effect::Subscribe(channel())]
+            [
+                Effect::Subscribe(channel()),
+                Effect::Toast("Subscribed to “Chan”".into())
+            ]
         );
         assert!(state.subscribed);
         assert_eq!(
             state.update(Msg::ToggleSubscribe),
-            [Effect::Unsubscribe("UC1".into())]
+            [
+                Effect::Unsubscribe("UC1".into()),
+                Effect::Toast("Unsubscribed from “Chan”".into())
+            ]
         );
         assert!(!state.subscribed);
     }

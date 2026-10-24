@@ -49,6 +49,7 @@ pub enum Msg {
     SubscriptionsChanged,
     OpenReplies(Comment),
     Popped(adw::NavigationPage),
+    Toast(String),
     /// Offers to play a finished download.
     DownloadCompleted(Video),
     /// Offers to retry the failed download with this id.
@@ -94,6 +95,7 @@ impl From<channel::Output> for Msg {
         match out {
             channel::Output::OpenVideo(v) => Msg::OpenVideo(v),
             channel::Output::SubscriptionsChanged => Msg::SubscriptionsChanged,
+            channel::Output::Toast(text) => Msg::Toast(text),
         }
     }
 }
@@ -106,6 +108,7 @@ impl From<video::Output> for Msg {
             video::Output::Download(v, kind) => Msg::Download(v, kind),
             video::Output::SubscriptionsChanged => Msg::SubscriptionsChanged,
             video::Output::OpenReplies(c) => Msg::OpenReplies(c),
+            video::Output::Toast(text) => Msg::Toast(text),
         }
     }
 }
@@ -262,6 +265,7 @@ impl Component for App {
                 self.pages.retain(|(p, _)| *p != page);
                 self.history.emit(history::Input::Reload);
             }
+            Msg::Toast(text) => self.toast(&text),
             Msg::DownloadCompleted(video) => {
                 let toast = adw::Toast::builder()
                     .title(format!("Downloaded “{}”", video.title))

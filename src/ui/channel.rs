@@ -4,7 +4,7 @@ use relm4::adw::prelude::*;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
 use super::video::Load;
-use super::{Services, images, log_db_error, widgets};
+use super::{Services, format, images, log_db_error, widgets};
 use crate::core::model::{Channel, Video};
 
 /// GTK-independent state of a channel page.
@@ -29,6 +29,8 @@ pub enum Effect {
     Load(String),
     Subscribe(Channel),
     Unsubscribe(String),
+    /// Tells the user what happened.
+    Toast(String),
     OpenVideo(Video),
 }
 
@@ -61,11 +63,14 @@ impl State {
             }
             Msg::ToggleSubscribe => {
                 self.subscribed = !self.subscribed;
-                return vec![if self.subscribed {
-                    Effect::Subscribe(self.channel.clone())
-                } else {
-                    Effect::Unsubscribe(self.channel.id.clone())
-                }];
+                return vec![
+                    if self.subscribed {
+                        Effect::Subscribe(self.channel.clone())
+                    } else {
+                        Effect::Unsubscribe(self.channel.id.clone())
+                    },
+                    Effect::Toast(format::subscription(&self.channel.name, self.subscribed)),
+                ];
             }
             Msg::Activate(index) => {
                 if let Load::Loaded(videos) = &self.videos
@@ -90,6 +95,7 @@ pub struct ChannelPage {
 pub enum Output {
     OpenVideo(Video),
     SubscriptionsChanged,
+    Toast(String),
 }
 
 #[relm4::component(pub)]
@@ -247,6 +253,9 @@ impl ChannelPage {
                     log_db_error(self.services.db.unsubscribe(&id));
                     let _ = sender.output(Output::SubscriptionsChanged);
                 }
+                Effect::Toast(text) => {
+                    let _ = sender.output(Output::Toast(text));
+                }
                 Effect::OpenVideo(video) => {
                     let _ = sender.output(Output::OpenVideo(video));
                 }
@@ -332,11 +341,17 @@ mod tests {
         let (mut state, _) = State::new(channel("Chan"), false);
         assert_eq!(
             state.update(Msg::ToggleSubscribe),
-            [Effect::Subscribe(channel("Chan"))]
+            [
+                Effect::Subscribe(channel("Chan")),
+                Effect::Toast("Subscribed to “Chan”".into())
+            ]
         );
         assert_eq!(
             state.update(Msg::ToggleSubscribe),
-            [Effect::Unsubscribe("UC1".into())]
+            [
+                Effect::Unsubscribe("UC1".into()),
+                Effect::Toast("Unsubscribed from “Chan”".into())
+            ]
         );
         assert!(!state.subscribed);
     }
