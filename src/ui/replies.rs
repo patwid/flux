@@ -3,8 +3,8 @@
 use relm4::adw::prelude::*;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
-use super::comments::{self, CommentList, Comments};
-use super::{Services, format, widgets};
+use super::comments::{self, CommentList, Comments, Rows};
+use super::{Services, format};
 use crate::core::model::{Comment, CommentPage};
 
 /// GTK-independent state of a replies page.
@@ -81,21 +81,16 @@ impl Component for RepliesPage {
 
                     gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 12,
+                        set_spacing: 24,
                         set_margin_all: 12,
 
                         #[local_ref]
-                        parent -> gtk::ListBox {},
-
-                        gtk::Label {
-                            add_css_class: "heading",
-                            set_xalign: 0.0,
-                            set_margin_top: 6,
-                            set_label: &format::replies(model.state.comment.reply_count),
-                        },
+                        parent -> adw::PreferencesGroup {},
 
                         #[local_ref]
-                        replies -> gtk::Box {},
+                        replies -> adw::PreferencesGroup {
+                            set_title: &format::replies(model.state.comment.reply_count),
+                        },
                     },
                 },
             },
@@ -109,15 +104,21 @@ impl Component for RepliesPage {
     ) -> ComponentParts<Self> {
         let (state, effects) = State::new(comment);
         let more = sender.input_sender().clone();
+        let replies = adw::PreferencesGroup::new();
         let mut model = RepliesPage {
             state,
             services,
             // Replies have no replies of their own to open.
-            list: CommentList::new(move || more.emit(Msg::More), None::<fn(usize)>),
+            list: CommentList::new(
+                Rows::Group(replies.clone()),
+                move || more.emit(Msg::More),
+                None::<fn(usize)>,
+            ),
         };
-        let parent = widgets::boxed_list();
-        parent.append(&comments::comment_row(&model.state.comment, None));
-        let replies = model.list.widget();
+        let parent = adw::PreferencesGroup::new();
+        parent.add(&comments::comment_row(&model.state.comment, None));
+        let replies = &replies;
+        let parent = &parent;
         let widgets = view_output!();
         model.run(effects, &sender);
         ComponentParts { model, widgets }

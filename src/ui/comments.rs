@@ -5,7 +5,7 @@ use std::rc::Rc;
 use relm4::adw::prelude::*;
 use relm4::{adw, gtk};
 
-use super::{format, images, widgets};
+use super::{format, images};
 use crate::core::model::{Comment, CommentPage};
 
 /// Comments loaded page by page on demand.
@@ -58,49 +58,69 @@ impl Comments {
     }
 }
 
-/// Shows [`Comments`]: their rows, a spinner while loading, errors, and a
-/// button to load the next page.
+/// Where a [`CommentList`] adds its rows.
+#[derive(Clone)]
+pub enum Rows {
+    Group(adw::PreferencesGroup),
+    Expander(adw::ExpanderRow),
+}
+
+impl Rows {
+    fn add(&self, row: &impl IsA<gtk::Widget>) {
+        match self {
+            Rows::Group(group) => group.add(row),
+            Rows::Expander(expander) => expander.add_row(row),
+        }
+    }
+
+    fn remove(&self, row: &impl IsA<gtk::Widget>) {
+        match self {
+            Rows::Group(group) => group.remove(row),
+            Rows::Expander(expander) => expander.remove(row),
+        }
+    }
+}
+
+/// Shows [`Comments`] as rows: the comments, then a spinner while loading,
+/// errors, and a button to load the next page.
 pub struct CommentList {
-    root: gtk::Box,
-    list: gtk::ListBox,
-    spinner: adw::Spinner,
-    error: gtk::Label,
-    more: gtk::Button,
-    /// Number of comments in `list`.
+    rows: Rows,
+    spinner: adw::PreferencesRow,
+    error: adw::ActionRow,
+    more: adw::ButtonRow,
+    /// Number of comments added.
     shown: usize,
     /// Opens the replies to the comment with the given index.
     on_replies: Option<Rc<dyn Fn(usize)>>,
 }
 
 impl CommentList {
-    /// `on_more` is called when the user asks for the next page, and
-    /// `on_replies` with a comment's index to open its replies; without it,
-    /// replies cannot be opened.
-    pub fn new(on_more: impl Fn() + 'static, on_replies: Option<impl Fn(usize) + 'static>) -> Self {
-        let root = gtk::Box::new(gtk::Orientation::Vertical, 12);
-        let list = widgets::boxed_list();
-        let spinner = adw::Spinner::new();
-        let error = gtk::Label::builder()
-            .css_classes(["dimmed"])
-            .wrap(true)
-            .xalign(0.0)
+    /// Adds the rows to `rows`. `on_more` is called when the user asks for
+    /// the next page, and `on_replies` with a comment's index to open its
+    /// replies; without it, replies cannot be opened.
+    pub fn new(
+        rows: Rows,
+        on_more: impl Fn() + 'static,
+        on_replies: Option<impl Fn(usize) + 'static>,
+    ) -> Self {
+        let spinner = adw::PreferencesRow::builder()
+            .activatable(false)
+            .child(
+                &adw::Spinner::builder()
+                    .height_request(24)
+                    .margin_top(12)
+                    .margin_bottom(12)
+                    .build(),
+            )
             .build();
-        let more = gtk::Button::builder()
-            .halign(gtk::Align::Center)
-            .css_classes(["pill"])
+        let error = adw::ActionRow::builder()
+            .title("Cannot load comments")
+            .use_markup(false)
             .build();
-        more.connect_clicked(move |_| on_more());
-        for widget in [
-            list.upcast_ref::<gtk::Widget>(),
-            spinner.upcast_ref(),
-            error.upcast_ref(),
-            more.upcast_ref(),
-        ] {
-            root.append(widget);
-        }
+        let more = adw::ButtonRow::new();
+        more.connect_activated(move |_| on_more());
         let mut view = CommentList {
-            root,
-            list,
+            rows,
             spinner,
             error,
             more,
@@ -111,43 +131,52 @@ impl CommentList {
         view
     }
 
-    pub fn widget(&self) -> &gtk::Box {
-        &self.root
-    }
-
     /// Shows the current state of `comments`, which only ever gain items.
     pub fn update(&mut self, comments: &Comments) {
+        // The status rows follow the comments, so they are added last.
+        let status: [&gtk::Widget; 3] = [
+            self.spinner.upcast_ref(),
+            self.error.upcast_ref(),
+            self.more.upcast_ref(),
+        ];
+        for row in status {
+            if row.parent().is_some() {
+                self.rows.remove(row);
+            }
+        }
         for (index, comment) in comments.items.iter().enumerate().skip(self.shown) {
             let on_replies = self
                 .on_replies
                 .clone()
                 .map(|f| Box::new(move || f(index)) as Box<dyn Fn()>);
-            self.list.append(&comment_row(comment, on_replies));
+            self.rows.add(&comment_row(comment, on_replies));
         }
         self.shown = comments.items.len();
 
-        self.list.set_visible(!comments.items.is_empty());
-        self.spinner.set_visible(comments.loading);
-        self.error.set_visible(comments.error.is_some());
-        if let Some(e) = &comments.error {
-            self.error.set_label(&format!("Cannot load comments: {e}"));
+        if comments.loading {
+            self.rows.add(&self.spinner);
         }
-        self.more.set_label(if comments.error.is_some() {
+        if let Some(e) = &comments.error {
+            self.error.set_subtitle(e);
+            self.rows.add(&self.error);
+        }
+        self.more.set_title(if comments.error.is_some() {
             "Retry"
         } else {
             "Load More"
         });
-        self.more.set_visible(
-            comments.next.is_some()
-                && !comments.loading
-                && (!comments.items.is_empty() || comments.error.is_some()),
-        );
+        if comments.next.is_some()
+            && !comments.loading
+            && (!comments.items.is_empty() || comments.error.is_some())
+        {
+            self.rows.add(&self.more);
+        }
     }
 }
 
 /// A non-activatable list row showing a comment and its author, with a
 /// button calling `on_replies` if there are replies.
-pub fn comment_row(comment: &Comment, on_replies: Option<Box<dyn Fn()>>) -> gtk::ListBoxRow {
+pub fn comment_row(comment: &Comment, on_replies: Option<Box<dyn Fn()>>) -> adw::PreferencesRow {
     let author = comment.author.as_ref();
     let name = author.map_or("Unknown", |a| a.name.as_str());
     // Initials of the handle, not "@".
@@ -208,7 +237,7 @@ pub fn comment_row(comment: &Comment, on_replies: Option<Box<dyn Fn()>>) -> gtk:
     content.set_margin_end(12);
     content.append(&avatar);
     content.append(&body);
-    gtk::ListBoxRow::builder()
+    adw::PreferencesRow::builder()
         .activatable(false)
         .child(&content)
         .build()

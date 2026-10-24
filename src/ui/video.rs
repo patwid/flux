@@ -9,7 +9,7 @@ use relm4::{
     adw, gtk,
 };
 
-use super::comments::{CommentList, Comments};
+use super::comments::{CommentList, Comments, Rows};
 use super::player_view::{self, PlayerView};
 use super::{Services, format, images, log_db_error, widgets};
 use crate::core::model::{
@@ -354,7 +354,9 @@ pub struct VideoPage {
     state: State,
     services: Services,
     player: Controller<PlayerView>,
-    related: gtk::ListBox,
+    related: adw::PreferencesGroup,
+    /// Rows of the related videos, to remove them again.
+    related_rows: Vec<adw::ActionRow>,
     comment_list: CommentList,
     avatar: adw::Avatar,
     fullscreen: bool,
@@ -491,55 +493,54 @@ impl Component for VideoPage {
                 },
             },
 
-            gtk::Expander {
-                set_label: Some("Description"),
+            adw::PreferencesGroup {
                 #[watch]
-                set_visible: matches!(&model.state.details, Load::Loaded(d) if !d.description.is_empty()),
+                set_visible: matches!(model.state.details, Load::Loaded(_)),
 
-                gtk::Label {
-                    set_wrap: true,
-                    set_xalign: 0.0,
-                    set_selectable: true,
-                    set_margin_top: 6,
+                adw::ExpanderRow {
+                    set_title: "Description",
+                    set_use_markup: false,
+                    set_subtitle_lines: 1,
                     #[watch]
-                    set_label: match &model.state.details {
-                        Load::Loaded(d) => &d.description,
-                        _ => "",
+                    set_subtitle: model.description().lines().next().unwrap_or_default(),
+                    #[watch]
+                    set_visible: !model.description().is_empty(),
+
+                    add_row = &adw::PreferencesRow {
+                        set_activatable: false,
+
+                        #[wrap(Some)]
+                        set_child = &gtk::Label {
+                            set_wrap: true,
+                            set_wrap_mode: gtk::pango::WrapMode::WordChar,
+                            set_xalign: 0.0,
+                            set_selectable: true,
+                            set_margin_all: 12,
+                            #[watch]
+                            set_label: model.description(),
+                        },
+                    },
+                },
+
+                #[local_ref]
+                comments_row -> adw::ExpanderRow {
+                    #[watch]
+                    set_title: &format::comments_title(model.state.comments.count),
+                    #[watch]
+                    set_visible: model.state.comments.available(),
+                    connect_expanded_notify[sender] => move |row| {
+                        if row.is_expanded() {
+                            sender.input(PageMsg::State(Msg::ShowComments));
+                        }
                     },
                 },
             },
 
-            gtk::Expander {
-                #[watch]
-                set_label: Some(&format::comments_title(model.state.comments.count)),
-                #[watch]
-                set_visible: matches!(model.state.details, Load::Loaded(_))
-                    && model.state.comments.available(),
-                connect_expanded_notify[sender] => move |expander| {
-                    if expander.is_expanded() {
-                        sender.input(PageMsg::State(Msg::ShowComments));
-                    }
-                },
-
-                #[local_ref]
-                comment_view -> gtk::Box {
-                    set_margin_top: 6,
-                },
-            },
-
-            gtk::Label {
-                set_label: "Related Videos",
-                add_css_class: "heading",
-                set_xalign: 0.0,
+            #[local_ref]
+            related -> adw::PreferencesGroup {
+                set_title: "Related Videos",
                 #[watch]
                 set_visible: matches!(&model.state.details, Load::Loaded(d) if !d.related.is_empty()),
-            },
-
-            #[local_ref]
-            related -> gtk::ListBox {
-                connect_row_activated[sender] => move |_, row| {
-                    sender.input(PageMsg::State(Msg::OpenRelated(row.index() as usize)));
-                },
             },
         }
     }
@@ -550,6 +551,7 @@ impl Component for VideoPage {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let (state, effects) = State::new(init);
+        let comments_row = adw::ExpanderRow::new();
         let player =
             PlayerView::builder()
                 .launch(())
@@ -564,8 +566,10 @@ impl Component for VideoPage {
             state,
             services,
             player,
-            related: widgets::boxed_list(),
+            related: adw::PreferencesGroup::new(),
+            related_rows: Vec::new(),
             comment_list: CommentList::new(
+                Rows::Expander(comments_row.clone()),
                 {
                     let sender = sender.clone();
                     move || sender.input(PageMsg::State(Msg::MoreComments))
@@ -581,7 +585,7 @@ impl Component for VideoPage {
             window: None,
         };
         let related = &model.related;
-        let comment_view = model.comment_list.widget();
+        let comments_row = &comments_row;
         let avatar = &model.avatar;
         let widgets = view_output!();
         add_actions(&root, &sender);
@@ -612,7 +616,7 @@ impl Component for VideoPage {
                 let effects = self.state.update(msg);
                 self.run(effects, &sender);
                 if details {
-                    self.fill_related();
+                    self.fill_related(&sender);
                 }
                 if comments {
                     self.comment_list.update(&self.state.comments);
@@ -762,13 +766,29 @@ impl VideoPage {
         }
     }
 
-    fn fill_related(&self) {
-        self.related.remove_all();
+    fn fill_related(&mut self, sender: &ComponentSender<Self>) {
+        for row in self.related_rows.drain(..) {
+            self.related.remove(&row);
+        }
         if let Load::Loaded(details) = &self.state.details {
             images::set_avatar(&self.avatar, details.channel.avatar_url.as_deref());
-            for video in &details.related {
-                self.related.append(&widgets::video_row(video));
+            for (index, video) in details.related.iter().enumerate() {
+                let row = widgets::video_row(video);
+                let input = sender.input_sender().clone();
+                row.connect_activated(move |_| {
+                    input.emit(PageMsg::State(Msg::OpenRelated(index)));
+                });
+                self.related.add(&row);
+                self.related_rows.push(row);
             }
+        }
+    }
+
+    /// The video's description, once loaded.
+    fn description(&self) -> &str {
+        match &self.state.details {
+            Load::Loaded(d) => &d.description,
+            _ => "",
         }
     }
 }
