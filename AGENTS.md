@@ -93,10 +93,19 @@ src/
   - An `AdwMultiLayoutView` provides two layouts, and the stack is placed in each through an `AdwLayoutSlot`:
     - `narrow`: an `AdwViewSwitcherBar` at the bottom.
     - `wide`: an `AdwViewSwitcherSidebar` in an `AdwOverlaySplitView`.
+  - Each section is an `AdwToolbarView` with its own header bar, which holds the section's actions
+    (refresh, clear, the search entry) and the primary menu.
 - An `AdwBreakpoint` (max-width 550sp) switches the layout, rather than size-allocation hacks.
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
 - Video page: when the page is under 700sp wide, or fullscreen, the player is fixed above the scrolled details.
-  On wider pages, the player scrolls with the details inside a clamp.
+  On wider pages, the player scrolls with the details inside a clamp. An `AdwMultiLayoutView` with the
+  layouts `narrow`, `wide` and `fullscreen` places the player.
+- Prefer libadwaita patterns over hand-built ones: menus are `gio::Menu` models backed by actions,
+  lists are boxed lists of `AdwActionRow`/`AdwExpanderRow`/`AdwButtonRow` (long lists such as the
+  feed use a `GtkListView`), loading and error pages are `AdwStatusPage`s, failures that can be
+  retried offer a Retry button or an `AdwBanner`, and outcomes the user should know about (or undo)
+  are toasts.
+- Keyboard shortcuts are listed in the shortcuts dialog (`ui/app.rs`); keep it up to date.
 - Videos never start playing by themselves. Opening a video (new or reopened, streamed or
   downloaded) loads it at its resume position, paused.
 - Player controls hide during playback. A tap toggles them; a double tap, `f` or the button toggles
