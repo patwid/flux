@@ -3,7 +3,88 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::model::{Download, DownloadKind, DownloadStatus, Video};
+use super::model::{
+    AudioStream, Download, DownloadKind, DownloadStatus, Streams, Video, VideoStream,
+};
+use super::streams;
+
+/// Size of the byte ranges a stream is downloaded in. YouTube refuses
+/// requests for whole files.
+pub const CHUNK_SIZE: u64 = 10 * 1024 * 1024;
+
+/// The streams to download and the file extension of the result.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Plan {
+    /// `None` for audio downloads.
+    pub video: Option<VideoStream>,
+    pub audio: AudioStream,
+    pub extension: &'static str,
+}
+
+/// Chooses streams to download: H.264 video with AAC audio, muxed into MP4
+/// (other codecs go into Matroska), or the best audio alone.
+pub fn plan(streams: &Streams, kind: DownloadKind, max_height: u32) -> Option<Plan> {
+    let mp4_audio: Vec<_> = streams
+        .audio
+        .iter()
+        .filter(|a| a.mime.starts_with("audio/mp4"))
+        .cloned()
+        .collect();
+    let audio = streams::select_audio(&mp4_audio)
+        .or_else(|| streams::select_audio(&streams.audio))?
+        .clone();
+    let audio_is_mp4 = audio.mime.starts_with("audio/mp4");
+    if kind == DownloadKind::Audio {
+        let extension = if audio_is_mp4 { "m4a" } else { "webm" };
+        return Some(Plan {
+            video: None,
+            audio,
+            extension,
+        });
+    }
+    let mp4_video: Vec<_> = streams
+        .video_only
+        .iter()
+        .filter(|v| v.mime.starts_with("video/mp4") && v.mime.contains("avc1"))
+        .cloned()
+        .collect();
+    let video = streams::select_video(&mp4_video, max_height)
+        .or_else(|| streams::select_video(&streams.video_only, max_height))?
+        .clone();
+    let mp4 = audio_is_mp4 && video.mime.starts_with("video/mp4");
+    Some(Plan {
+        video: Some(video),
+        audio,
+        extension: if mp4 { "mp4" } else { "mkv" },
+    })
+}
+
+/// Inclusive byte ranges covering `size` bytes in chunks of `chunk` bytes.
+pub fn chunk_ranges(size: u64, chunk: u64) -> Vec<(u64, u64)> {
+    (0..size)
+        .step_by(chunk as usize)
+        .map(|start| (start, (start + chunk).min(size) - 1))
+        .collect()
+}
+
+/// ffmpeg arguments muxing a video and an audio file into `output`
+/// without re-encoding.
+pub fn mux_args(video: &Path, audio: &Path, output: &Path) -> Vec<std::ffi::OsString> {
+    let mut args: Vec<std::ffi::OsString> = ["-y", "-loglevel", "error", "-i"]
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    args.push(video.into());
+    args.push("-i".into());
+    args.push(audio.into());
+    args.extend(
+        ["-map", "0:v:0", "-map", "1:a:0", "-c", "copy"]
+            .into_iter()
+            .map(Into::into),
+    );
+    args.push(output.into());
+    args
+}
 
 /// Number of downloads running at the same time.
 pub const MAX_PARALLEL: usize = 2;
@@ -422,5 +503,118 @@ mod tests {
         assert_eq!(started(&effects), [2]);
         assert!(queue.downloads.iter().all(|d| d.id != 1));
         assert!(queue.update(Msg::Remove(1)).is_empty());
+    }
+
+    fn stream_video(height: u32, mime: &str) -> VideoStream {
+        VideoStream {
+            url: format!("{height}-{mime}"),
+            height,
+            mime: mime.into(),
+            ..Default::default()
+        }
+    }
+
+    fn stream_audio(bitrate: u32, mime: &str) -> AudioStream {
+        AudioStream {
+            url: format!("{bitrate}-{mime}"),
+            bitrate,
+            mime: mime.into(),
+            ..Default::default()
+        }
+    }
+
+    fn streams() -> Streams {
+        Streams {
+            video_only: vec![
+                stream_video(1080, "video/mp4; codecs=\"avc1.640028\""),
+                stream_video(720, "video/webm; codecs=\"vp9\""),
+                stream_video(720, "video/mp4; codecs=\"avc1.4D401F\""),
+            ],
+            audio: vec![
+                stream_audio(160, "audio/webm; codecs=\"opus\""),
+                stream_audio(128, "audio/mp4; codecs=\"mp4a.40.2\""),
+            ],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn video_plan_prefers_mp4() {
+        let plan = plan(&streams(), DownloadKind::Video, 720).unwrap();
+        assert_eq!(
+            plan.video.unwrap().url,
+            "720-video/mp4; codecs=\"avc1.4D401F\""
+        );
+        assert_eq!(plan.audio.url, "128-audio/mp4; codecs=\"mp4a.40.2\"");
+        assert_eq!(plan.extension, "mp4");
+    }
+
+    #[test]
+    fn video_plan_falls_back_to_matroska() {
+        let mut s = streams();
+        s.video_only.retain(|v| v.mime.contains("webm"));
+        s.audio.retain(|a| a.mime.contains("webm"));
+        let plan = plan(&s, DownloadKind::Video, 720).unwrap();
+        assert!(plan.video.unwrap().mime.contains("vp9"));
+        assert_eq!(plan.extension, "mkv");
+    }
+
+    #[test]
+    fn audio_plan_prefers_aac() {
+        let plan = plan(&streams(), DownloadKind::Audio, 720).unwrap();
+        assert_eq!(plan.video, None);
+        assert_eq!(plan.audio.url, "128-audio/mp4; codecs=\"mp4a.40.2\"");
+        assert_eq!(plan.extension, "m4a");
+
+        let mut s = streams();
+        s.audio.retain(|a| a.mime.contains("webm"));
+        let plan = super::plan(&s, DownloadKind::Audio, 720).unwrap();
+        assert_eq!(plan.extension, "webm");
+    }
+
+    #[test]
+    fn nothing_to_download() {
+        assert_eq!(plan(&Streams::default(), DownloadKind::Audio, 720), None);
+        let mut s = streams();
+        s.video_only.clear();
+        assert_eq!(plan(&s, DownloadKind::Video, 720), None);
+    }
+
+    #[test]
+    fn splits_into_chunks() {
+        assert_eq!(chunk_ranges(0, 10), []);
+        assert_eq!(chunk_ranges(10, 10), [(0, 9)]);
+        assert_eq!(chunk_ranges(25, 10), [(0, 9), (10, 19), (20, 24)]);
+    }
+
+    #[test]
+    fn muxes_without_reencoding() {
+        let args: Vec<_> = mux_args(
+            Path::new("v.part"),
+            Path::new("a.part"),
+            Path::new("out.mp4"),
+        )
+        .into_iter()
+        .map(|a| a.into_string().unwrap())
+        .collect();
+        assert_eq!(
+            args,
+            [
+                "-y",
+                "-loglevel",
+                "error",
+                "-i",
+                "v.part",
+                "-i",
+                "a.part",
+                "-map",
+                "0:v:0",
+                "-map",
+                "1:a:0",
+                "-c",
+                "copy",
+                "out.mp4"
+            ]
+        );
     }
 }
