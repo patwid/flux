@@ -5,10 +5,10 @@ use chrono::{DateTime, Utc};
 use rustypipe::client::RustyPipe;
 use rustypipe::model::{self as rp, richtext::ToPlaintext};
 
-use super::{Backend, BackendError, Result};
+use super::{Backend, BackendError, Downloader, ProgressFn, Result};
 use crate::core::feed;
 use crate::core::model::{
-    AudioStream, Channel, SearchItem, Streams, Video, VideoDetails, VideoStream,
+    AudioStream, Channel, DownloadKind, SearchItem, Streams, Video, VideoDetails, VideoStream,
 };
 
 impl From<rustypipe::error::Error> for BackendError {
@@ -26,14 +26,24 @@ impl From<reqwest::Error> for BackendError {
 pub struct RustyPipeBackend {
     client: RustyPipe,
     http: reqwest::Client,
+    downloader: rustypipe_downloader::Downloader,
 }
 
 impl RustyPipeBackend {
     /// Creates a backend that caches client data in `storage_dir`.
     pub fn new(storage_dir: &std::path::Path) -> Result<Self> {
+        let client = RustyPipe::builder().storage_dir(storage_dir).build()?;
+        let downloader = rustypipe_downloader::Downloader::builder()
+            .rustypipe(&client)
+            .stream_filter(
+                rustypipe::param::StreamFilter::new()
+                    .video_max_res(crate::core::streams::DEFAULT_MAX_HEIGHT),
+            )
+            .build();
         Ok(Self {
-            client: RustyPipe::builder().storage_dir(storage_dir).build()?,
+            client,
             http: reqwest::Client::new(),
+            downloader,
         })
     }
 }
@@ -122,6 +132,41 @@ impl Backend for RustyPipeBackend {
             .bytes()
             .await?;
         feed::parse_channel_feed(&xml).map_err(|e| BackendError::Other(e.to_string()))
+    }
+}
+
+#[async_trait]
+impl Downloader for RustyPipeBackend {
+    async fn download(
+        &self,
+        video_id: &str,
+        kind: DownloadKind,
+        path: &std::path::Path,
+        progress: ProgressFn,
+    ) -> Result<std::path::PathBuf> {
+        let bar = indicatif::ProgressBar::hidden();
+        let mut query = self
+            .downloader
+            .id(video_id)
+            .to_file(path)
+            .progress_bar(bar.clone());
+        if kind == DownloadKind::Audio {
+            query = query.stream_filter(rustypipe::param::StreamFilter::new().no_video());
+        }
+        // The downloader only reports progress through the progress bar.
+        let poll = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                if let Some(len) = bar.length().filter(|&l| l > 0) {
+                    progress(bar.position() as f64 / len as f64);
+                }
+            }
+        });
+        let result = query.download().await;
+        poll.abort();
+        result
+            .map(|r| r.dest)
+            .map_err(|e| BackendError::Other(e.to_string()))
     }
 }
 

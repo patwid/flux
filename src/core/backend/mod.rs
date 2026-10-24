@@ -6,7 +6,7 @@ pub mod rustypipe;
 use async_trait::async_trait;
 
 use super::feed;
-use super::model::{Channel, SearchItem, Streams, Video, VideoDetails};
+use super::model::{Channel, DownloadKind, SearchItem, Streams, Video, VideoDetails};
 
 #[derive(Debug, thiserror::Error)]
 pub enum BackendError {
@@ -25,6 +25,22 @@ pub trait Backend: Send + Sync {
     async fn channel(&self, channel_id: &str) -> Result<(Channel, Vec<Video>)>;
     /// The latest uploads of a channel from its RSS feed.
     async fn channel_feed(&self, channel_id: &str) -> Result<Vec<Video>>;
+}
+
+/// Reports download progress from 0 to 1.
+pub type ProgressFn = Box<dyn Fn(f64) + Send + Sync>;
+
+#[async_trait]
+pub trait Downloader: Send + Sync {
+    /// Downloads a video to `path` and returns the path actually written
+    /// (the extension may differ).
+    async fn download(
+        &self,
+        video_id: &str,
+        kind: DownloadKind,
+        path: &std::path::Path,
+        progress: ProgressFn,
+    ) -> Result<std::path::PathBuf>;
 }
 
 /// The result of refreshing the subscription feed.

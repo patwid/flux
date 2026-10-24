@@ -2,6 +2,9 @@
 
 use super::model::{AudioStream, PlaybackSource, Streams, VideoStream};
 
+/// Highest resolution played and downloaded by default.
+pub const DEFAULT_MAX_HEIGHT: u32 = 720;
+
 /// Picks the best video stream not exceeding `max_height`. If every stream
 /// is taller, the smallest one is used. Among equal heights H.264 is
 /// preferred (hardware decoding on mobile devices), then higher fps, then

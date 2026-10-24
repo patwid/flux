@@ -13,8 +13,7 @@ use super::{Services, format, log_db_error, widgets};
 use crate::core::model::{Channel, DownloadKind, PlaybackSource, Streams, Video, VideoDetails};
 use crate::core::streams;
 
-/// Highest resolution played by default.
-pub const MAX_HEIGHT: u32 = 720;
+use crate::core::streams::DEFAULT_MAX_HEIGHT as MAX_HEIGHT;
 
 /// Pages at least this wide scroll the player with the details.
 const WIDE_WIDTH_SP: f64 = 700.0;

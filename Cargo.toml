@@ -10,14 +10,16 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 feed-rs = "3.0.0"
 futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
 gstreamer = "0.25"
+indicatif = "0.17"
 relm4 = { version = "0.11", features = ["libadwaita", "gnome_50"] }
 reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }
 rusqlite = { version = "0.40.2", features = ["bundled"] }
 rusqlite_migration = "2.6.0"
 rustypipe = "0.11.4"
+rustypipe-downloader = { version = "0.3.1", features = ["indicatif"] }
 thiserror = "2.0.21"
 time = "0.3.55"
-tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "time"] }
 url = "2"
 
 [dev-dependencies]
