@@ -313,14 +313,12 @@ impl Component for PlayerView {
                 }
                 self.duration = engine.duration();
                 match self.pending_seek.take() {
-                    // Playback starts once the seek has prerolled too.
+                    // Ready once the seek to the resume position has prerolled too.
                     Some(position) => {
                         let _ = engine.seek(position);
                     }
-                    None => {
-                        self.status = Status::Ready;
-                        self.set_playing(true);
-                    }
+                    // Videos never start by themselves; the user presses play.
+                    None => self.status = Status::Ready,
                 }
             }
             Msg::TogglePlay => self.set_playing(!self.playing),

@@ -94,6 +94,8 @@ src/
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
 - Video page: when the page is under 700sp wide, or fullscreen, the player is fixed above the scrolled details.
   On wider pages, the player scrolls with the details inside a clamp.
+- Videos never start playing by themselves. Opening a video (new or reopened, streamed or
+  downloaded) loads it at its resume position, paused.
 - Player controls hide during playback. A tap toggles them; a double tap, `f` or the button toggles
   fullscreen; `Esc` leaves fullscreen; `Space` plays or pauses.
 
