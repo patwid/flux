@@ -87,6 +87,12 @@ src/
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
 - The player goes fullscreen in landscape or on request.
 
+## Offline demo
+
+`cargo run --example demo` starts Flux against the fake backend with an in-memory database
+and generated test videos. Search for "demo". Use it to check UI changes without network access,
+e.g. under `xvfb-run` with screenshots at phone (360×720) and desktop sizes.
+
 ## Building with Nix
 
 A Nix flake (`flake.nix`, with the package in `nix/package.nix`) builds and runs the app on

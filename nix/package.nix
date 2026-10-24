@@ -25,6 +25,7 @@ rustPlatform.buildRustPackage {
       ../src
       ../migrations
       ../tests
+      ../examples
     ];
   };
 
