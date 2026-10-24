@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use gstreamer as gst;
 use relm4::adw::prelude::*;
+use relm4::gtk::gio;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
 use super::aspect::AspectLayout;
@@ -59,6 +60,21 @@ impl Controls {
     }
 }
 
+/// The `player.subtitles` action target of a subtitle track, or of none.
+fn subtitle_target(track: Option<usize>) -> String {
+    track.map(|index| index.to_string()).unwrap_or_default()
+}
+
+/// The subtitle track of a `player.subtitles` action target.
+fn subtitle_track(target: &str) -> Option<usize> {
+    target.parse().ok()
+}
+
+/// A menu item label showing `text` as is, without mnemonics.
+fn menu_label(text: &str) -> String {
+    text.replace('_', "__")
+}
+
 pub struct PlayerView {
     engine: Option<Engine>,
     _bus_watch: Option<gst::bus::BusWatchGuard>,
@@ -79,10 +95,11 @@ pub struct PlayerView {
     /// A message shown in place of subtitles, with the ticks it remains.
     notice: Option<(String, u32)>,
     has_subtitle_tracks: bool,
-    subtitle_menu: gtk::Box,
-    subtitle_popover: gtk::Popover,
-    /// The "Off" entry of `subtitle_menu`.
-    subtitles_off: Option<gtk::CheckButton>,
+    subtitle_menu: gio::Menu,
+    subtitle_button: gtk::MenuButton,
+    /// The `player.subtitles` action; its state is the chosen track's
+    /// [`subtitle_target`].
+    subtitle_action: gio::SimpleAction,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,13 +307,14 @@ impl Component for PlayerView {
                         ),
                     },
 
-                    gtk::MenuButton {
+                    #[local_ref]
+                    subtitle_button -> gtk::MenuButton {
                         set_icon_name: "media-view-subtitles-symbolic",
                         set_tooltip_text: Some("Subtitles"),
                         set_direction: gtk::ArrowType::Up,
+                        set_menu_model: Some(subtitle_menu),
                         #[watch]
                         set_visible: model.has_subtitle_tracks,
-                        set_popover: Some(subtitle_popover),
                     },
 
                     gtk::Button {
@@ -333,17 +351,34 @@ impl Component for PlayerView {
             subtitle_timer: None,
             notice: None,
             has_subtitle_tracks: false,
-            subtitle_menu: gtk::Box::default(),
-            subtitle_popover: gtk::Popover::default(),
-            subtitles_off: None,
+            subtitle_menu: gio::Menu::new(),
+            subtitle_button: gtk::MenuButton::new(),
+            subtitle_action: gio::SimpleAction::new_stateful(
+                "subtitles",
+                Some(gtk::glib::VariantTy::STRING),
+                &subtitle_target(None).to_variant(),
+            ),
         };
         let picture = &model.picture;
-        model
-            .subtitle_menu
-            .set_orientation(gtk::Orientation::Vertical);
-        model.subtitle_popover.set_child(Some(&model.subtitle_menu));
-        let subtitle_popover = &model.subtitle_popover;
+        let subtitle_menu = &model.subtitle_menu;
+        let subtitle_button = &model.subtitle_button;
         let widgets = view_output!();
+
+        // Menu items request a state change, i.e. the user chose a track;
+        // the player sets the state directly when tracks are offered.
+        let input = sender.input_sender().clone();
+        model
+            .subtitle_action
+            .connect_change_state(move |action, target| {
+                if let Some(target) = target {
+                    action.set_state(target);
+                    let track = target.str().and_then(subtitle_track);
+                    let _ = input.send(Msg::ChooseSubtitles(track));
+                }
+            });
+        let actions = gio::SimpleActionGroup::new();
+        actions.add_action(&model.subtitle_action);
+        root.insert_action_group("player", Some(&actions));
 
         let tick = sender.input_sender().clone();
         gtk::glib::timeout_add_local(Duration::from_millis(500), move || {
@@ -407,7 +442,7 @@ impl Component for PlayerView {
             Msg::Tick => {
                 self.controls.tick(self.playing);
                 // Keep the controls, and with them the open menu, visible.
-                if self.subtitle_popover.is_visible() {
+                if self.subtitle_button.is_active() {
                     self.controls.activity();
                 }
                 if let Some((_, ticks)) = &mut self.notice {
@@ -441,17 +476,15 @@ impl Component for PlayerView {
                 let _ = sender.output(Output::ToggleFullscreen);
             }
             Msg::SetSubtitleTracks { names, selected } => {
-                self.fill_subtitle_menu(&names, selected, &sender);
+                self.fill_subtitle_menu(&names, selected);
             }
             Msg::SetSubtitles(cues) => self.set_cues(cues, &sender),
             Msg::SubtitlesFailed(e) => {
                 self.notice = Some((format!("Cannot load subtitles: {e}"), NOTICE_TICKS));
-                if let Some(off) = &self.subtitles_off {
-                    off.set_active(true);
-                }
+                self.subtitle_action
+                    .set_state(&subtitle_target(None).to_variant());
             }
             Msg::ChooseSubtitles(index) => {
-                self.subtitle_popover.popdown();
                 let _ = sender.output(Output::SelectSubtitles(index));
             }
             Msg::SubtitleTick => {
@@ -531,35 +564,20 @@ impl PlayerView {
 
     /// Fills the subtitle menu with "Off" and the tracks, marking the one
     /// at `selected` (or "Off") as chosen.
-    fn fill_subtitle_menu(
-        &mut self,
-        names: &[String],
-        selected: Option<usize>,
-        sender: &ComponentSender<Self>,
-    ) {
-        while let Some(child) = self.subtitle_menu.first_child() {
-            self.subtitle_menu.remove(&child);
+    fn fill_subtitle_menu(&mut self, names: &[String], selected: Option<usize>) {
+        self.subtitle_menu.remove_all();
+        let entries = std::iter::once((None, "Off".to_owned()))
+            .chain((0..).map(Some).zip(names.iter().map(|n| menu_label(n))));
+        for (track, label) in entries {
+            let item = gio::MenuItem::new(Some(&label), None);
+            item.set_action_and_target_value(
+                Some("player.subtitles"),
+                Some(&subtitle_target(track).to_variant()),
+            );
+            self.subtitle_menu.append_item(&item);
         }
-        let off = gtk::CheckButton::with_label("Off");
-        let entries = std::iter::once((None, off.clone())).chain(names.iter().enumerate().map(
-            |(index, name)| {
-                let button = gtk::CheckButton::with_label(name);
-                button.set_group(Some(&off));
-                (Some(index), button)
-            },
-        ));
-        for (index, button) in entries {
-            // Mark before connecting, so that this is no choice of the user.
-            button.set_active(index == selected);
-            let input = sender.input_sender().clone();
-            button.connect_toggled(move |button| {
-                if button.is_active() {
-                    let _ = input.send(Msg::ChooseSubtitles(index));
-                }
-            });
-            self.subtitle_menu.append(&button);
-        }
-        self.subtitles_off = Some(off);
+        self.subtitle_action
+            .set_state(&subtitle_target(selected).to_variant());
         self.has_subtitle_tracks = !names.is_empty();
     }
 
@@ -593,6 +611,19 @@ impl PlayerView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subtitle_tracks_round_trip_through_action_targets() {
+        for track in [None, Some(0), Some(12)] {
+            assert_eq!(subtitle_track(&subtitle_target(track)), track);
+        }
+        assert_eq!(subtitle_track("nonsense"), None);
+    }
+
+    #[test]
+    fn menu_labels_keep_underscores() {
+        assert_eq!(menu_label("en_US"), "en__US");
+    }
 
     fn ticks(controls: &mut Controls, n: u32, playing: bool) {
         for _ in 0..n {
