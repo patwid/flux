@@ -1,6 +1,7 @@
 //! Access to the streaming service.
 
 pub mod fake;
+pub mod rustypipe;
 
 use async_trait::async_trait;
 

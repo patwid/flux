@@ -529,7 +529,10 @@ dependencies = [
  "rusqlite",
  "rusqlite_migration",
  "rustypipe",
+ "serde_json",
+ "tempfile",
  "thiserror",
+ "time",
  "tokio",
 ]
 
