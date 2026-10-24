@@ -33,11 +33,11 @@ contributing to the code, human or agent.
 |---------------|------------------------------------------------------------------------|
 | Language      | Rust (stable, edition 2024)                                             |
 | UI            | GTK4 and libadwaita via `relm4` (The Elm Architecture). Target the **latest GNOME** (currently GNOME 50: relm4 feature `gnome_50`, libadwaita 1.9, GTK 4.22) and prefer modern libadwaita widgets (e.g. `AdwSpinner`, `AdwMultiLayoutView`, `AdwViewSwitcherSidebar`, `AdwToggleGroup`, `AdwWrapBox`) over older or GTK-only equivalents. |
-| Extraction    | `rustypipe` (YouTube internal API, pure Rust)                           |
+| Extraction    | `rustypipe` (YouTube internal API, pure Rust) for search, details and channels. Stream URLs come from YouTube's visionOS player client (`core/backend/visionos.rs`), because rustypipe's clients' URLs only serve the start of a video without a PO token. rustypipe's player is the fallback. |
 | Subscriptions | YouTube channel RSS (`https://www.youtube.com/feeds/videos.xml?channel_id=…`) |
-| Playback      | GStreamer (`playbin` + `gtk4paintablesink` → `gtk::Picture`)            |
+| Playback      | GStreamer (`playbin3` + `gtk4paintablesink` → `gtk::Picture`). Separate video/audio streams are played through a generated DASH manifest, so they are fetched in bounded byte ranges. |
 | Storage       | SQLite via `rusqlite`, with schema migrations and the DB in `$XDG_DATA_HOME/flux/` |
-| Downloads     | `rustypipe-downloader` (needs ffmpeg for muxing), saved to `$XDG_DOWNLOAD_DIR/Flux/` |
+| Downloads     | Own downloader: 10 MiB byte-range chunks (YouTube refuses whole-file requests), muxed with ffmpeg; saved to `$XDG_DOWNLOAD_DIR/Flux/` |
 | Async         | `tokio`, through Relm4 commands/workers                                         |
 
 App ID: `io.github.patwid.Flux`

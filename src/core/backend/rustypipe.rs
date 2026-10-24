@@ -6,11 +6,12 @@ use rustypipe::client::RustyPipe;
 use rustypipe::model::{self as rp, richtext::ToPlaintext};
 
 use super::{Backend, BackendError, Downloader, ProgressFn, Result, visionos};
-use crate::core::feed;
 use crate::core::model::SegmentRanges;
 use crate::core::model::{
     AudioStream, Channel, DownloadKind, SearchItem, Streams, Video, VideoDetails, VideoStream,
 };
+use crate::core::streams::DEFAULT_MAX_HEIGHT;
+use crate::core::{download, feed};
 
 impl From<rustypipe::error::Error> for BackendError {
     fn from(e: rustypipe::error::Error) -> Self {
@@ -27,24 +28,15 @@ impl From<reqwest::Error> for BackendError {
 pub struct RustyPipeBackend {
     client: RustyPipe,
     http: reqwest::Client,
-    downloader: rustypipe_downloader::Downloader,
 }
 
 impl RustyPipeBackend {
     /// Creates a backend that caches client data in `storage_dir`.
     pub fn new(storage_dir: &std::path::Path) -> Result<Self> {
         let client = RustyPipe::builder().storage_dir(storage_dir).build()?;
-        let downloader = rustypipe_downloader::Downloader::builder()
-            .rustypipe(&client)
-            .stream_filter(
-                rustypipe::param::StreamFilter::new()
-                    .video_max_res(crate::core::streams::DEFAULT_MAX_HEIGHT),
-            )
-            .build();
         Ok(Self {
             client,
             http: reqwest::Client::new(),
-            downloader,
         })
     }
 }
@@ -167,30 +159,107 @@ impl Downloader for RustyPipeBackend {
         path: &std::path::Path,
         progress: ProgressFn,
     ) -> Result<std::path::PathBuf> {
-        let bar = indicatif::ProgressBar::hidden();
-        let mut query = self
-            .downloader
-            .id(video_id)
-            .to_file(path)
-            .progress_bar(bar.clone());
-        if kind == DownloadKind::Audio {
-            query = query.stream_filter(rustypipe::param::StreamFilter::new().no_video());
+        let streams = self.streams(video_id).await?;
+        let plan = download::plan(&streams, kind, DEFAULT_MAX_HEIGHT)
+            .ok_or_else(|| BackendError::Other("no downloadable stream".into()))?;
+        let output = path.with_extension(plan.extension);
+        let part = |name: &str| output.with_extension(format!("{name}.part"));
+
+        let mut sizes = Vec::new();
+        if let Some(video) = &plan.video {
+            sizes.push(video.size);
         }
-        // The downloader only reports progress through the progress bar.
-        let poll = tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                if let Some(len) = bar.length().filter(|&l| l > 0) {
-                    progress(bar.position() as f64 / len as f64);
-                }
+        sizes.push(plan.audio.size);
+        let total: u64 = sizes
+            .into_iter()
+            .map(|s| s.ok_or_else(|| BackendError::Other("unknown stream size".into())))
+            .sum::<Result<_>>()?;
+        let (mut done, mut percent) = (0, 0);
+        // Report whole percents only; network chunks are small.
+        let mut on_bytes = |n: u64| {
+            done += n;
+            let now = done * 100 / total.max(1);
+            if now > percent {
+                percent = now;
+                progress(done as f64 / total.max(1) as f64);
             }
-        });
-        let result = query.download().await;
-        poll.abort();
-        result
-            .map(|r| r.dest)
-            .map_err(|e| BackendError::Other(e.to_string()))
+        };
+
+        match &plan.video {
+            Some(video) => {
+                let (video_part, audio_part) = (part("video"), part("audio"));
+                let fetched = async {
+                    self.fetch(&video.url, video.size, &video_part, &mut on_bytes)
+                        .await?;
+                    self.fetch(&plan.audio.url, plan.audio.size, &audio_part, &mut on_bytes)
+                        .await?;
+                    mux(&video_part, &audio_part, &output).await
+                }
+                .await;
+                let _ = tokio::fs::remove_file(&video_part).await;
+                let _ = tokio::fs::remove_file(&audio_part).await;
+                fetched?;
+            }
+            None => {
+                let audio_part = part("audio");
+                self.fetch(&plan.audio.url, plan.audio.size, &audio_part, &mut on_bytes)
+                    .await?;
+                tokio::fs::rename(&audio_part, &output).await?;
+            }
+        }
+        Ok(output)
     }
+}
+
+impl RustyPipeBackend {
+    /// Downloads `url` (of `size` bytes) to `path` in chunks.
+    async fn fetch(
+        &self,
+        url: &str,
+        size: Option<u64>,
+        path: &std::path::Path,
+        on_bytes: &mut impl FnMut(u64),
+    ) -> Result<()> {
+        use tokio::io::AsyncWriteExt;
+
+        let size = size.ok_or_else(|| BackendError::Other("unknown stream size".into()))?;
+        let mut file = tokio::fs::File::create(path).await?;
+        for (start, end) in download::chunk_ranges(size, download::CHUNK_SIZE) {
+            let mut response = self
+                .http
+                .get(url)
+                .header("Range", format!("bytes={start}-{end}"))
+                .send()
+                .await?
+                .error_for_status()?;
+            while let Some(chunk) = response.chunk().await? {
+                file.write_all(&chunk).await?;
+                on_bytes(chunk.len() as u64);
+            }
+        }
+        file.flush().await?;
+        Ok(())
+    }
+}
+
+/// Muxes video and audio files into `output` with ffmpeg.
+async fn mux(
+    video: &std::path::Path,
+    audio: &std::path::Path,
+    output: &std::path::Path,
+) -> Result<()> {
+    let result = tokio::process::Command::new("ffmpeg")
+        .args(download::mux_args(video, audio, output))
+        .output()
+        .await
+        .map_err(|e| BackendError::Other(format!("cannot run ffmpeg: {e}")))?;
+    if !result.status.success() {
+        return Err(BackendError::Other(format!(
+            "ffmpeg failed: {}",
+            String::from_utf8_lossy(&result.stderr).trim()
+        )));
+    }
+    Ok(())
 }
 
 fn to_chrono(t: time::OffsetDateTime) -> Option<DateTime<Utc>> {
@@ -413,5 +482,34 @@ mod tests {
             .unwrap()
             .status();
         assert_eq!(status, reqwest::StatusCode::PARTIAL_CONTENT);
+    }
+
+    #[tokio::test]
+    #[ignore = "needs network and ffmpeg"]
+    async fn downloads_video_and_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = RustyPipeBackend::new(dir.path()).unwrap();
+        for (kind, ext) in [(DownloadKind::Video, "mp4"), (DownloadKind::Audio, "m4a")] {
+            let last = std::sync::Arc::new(std::sync::Mutex::new(0.0));
+            let progress = last.clone();
+            let path = backend
+                .download(
+                    "dQw4w9WgXcQ",
+                    kind,
+                    &dir.path().join("rick.mp4"),
+                    Box::new(move |p| *progress.lock().unwrap() = p),
+                )
+                .await
+                .unwrap();
+            assert_eq!(path.extension().unwrap(), ext);
+            assert!(std::fs::metadata(&path).unwrap().len() > 1_000_000);
+            assert_eq!(*last.lock().unwrap(), 1.0);
+        }
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().to_string_lossy().ends_with(".part"))
+            .collect();
+        assert!(leftovers.is_empty());
     }
 }

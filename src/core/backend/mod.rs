@@ -15,6 +15,12 @@ pub enum BackendError {
     Other(String),
 }
 
+impl From<std::io::Error> for BackendError {
+    fn from(e: std::io::Error) -> Self {
+        BackendError::Other(e.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, BackendError>;
 
 #[async_trait]
