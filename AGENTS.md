@@ -32,7 +32,7 @@ contributing to the code, human or agent.
 | Concern       | Choice                                                                 |
 |---------------|------------------------------------------------------------------------|
 | Language      | Rust (stable, edition 2024)                                             |
-| UI            | GTK4 and libadwaita via `relm4` (The Elm Architecture)                    |
+| UI            | GTK4 and libadwaita via `relm4` (The Elm Architecture). Target the **latest GNOME** (currently GNOME 50: relm4 feature `gnome_50`, libadwaita 1.9, GTK 4.22) and prefer modern libadwaita widgets (e.g. `AdwSpinner`, `AdwMultiLayoutView`, `AdwViewSwitcherSidebar`, `AdwToggleGroup`, `AdwWrapBox`) over older or GTK-only equivalents. |
 | Extraction    | `rustypipe` (YouTube internal API, pure Rust)                           |
 | Subscriptions | YouTube channel RSS (`https://www.youtube.com/feeds/videos.xml?channel_id=…`) |
 | Playback      | GStreamer (`playbin` + `gtk4paintablesink` → `gtk::Picture`)            |
@@ -78,9 +78,10 @@ src/
 
 - `AdwNavigationView` for drill-down (list → video detail → player).
 - Top-level sections are Feed, Search, Subscriptions, History, and Downloads, and they live in an `AdwViewStack`.
-  - When narrow, an `AdwViewSwitcherBar` sits at the bottom.
-  - When wide, an `AdwViewSwitcher` sits in the header bar, or a sidebar is used through `AdwNavigationSplitView`.
-- The layout switches through `AdwBreakpoint`s rather than size-allocation hacks.
+  - An `AdwMultiLayoutView` provides two layouts, and the stack is placed in each through an `AdwLayoutSlot`:
+    - `narrow`: an `AdwViewSwitcherBar` at the bottom.
+    - `wide`: an `AdwViewSwitcherSidebar` in an `AdwOverlaySplitView`.
+- An `AdwBreakpoint` (max-width 550sp) switches the layout, rather than size-allocation hacks.
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
 - The player goes fullscreen in landscape or on request.
 

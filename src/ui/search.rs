@@ -137,9 +137,8 @@ impl Component for SearchPage {
                     set_title: "Search",
                     set_description: Some("Find videos and channels"),
                 },
-                add_named[Some("loading")] = &gtk::Spinner {
-                    set_spinning: true,
-                    set_size_request: (32, 32),
+                add_named[Some("loading")] = &adw::Spinner {
+                    set_size_request: (48, 48),
                     set_halign: gtk::Align::Center,
                     set_valign: gtk::Align::Center,
                 },
