@@ -1,6 +1,8 @@
 //! Human-readable formatting of model values.
 
-use crate::core::model::Video;
+use chrono::{DateTime, Utc};
+
+use crate::core::model::{Video, VideoDetails};
 
 /// Formats a duration as `m:ss` or `h:mm:ss`.
 pub fn duration(secs: u32) -> String {
@@ -19,6 +21,60 @@ pub fn video_subtitle(video: &Video) -> String {
         .into_iter()
         .flatten()
         .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+/// Formats a count compactly, e.g. `999`, `1.2K`, `3.4M`, `1.1B`.
+pub fn count(n: u64) -> String {
+    let Some((unit, suffix)) = [(1_000_000_000, "B"), (1_000_000, "M"), (1_000, "K")]
+        .into_iter()
+        .find(|(unit, _)| n >= *unit)
+    else {
+        return n.to_string();
+    };
+    // Truncate like YouTube does: 1,999 is "1.9K", not "2K".
+    let tenths = n / (unit / 10);
+    if tenths < 100 && !tenths.is_multiple_of(10) {
+        format!("{}.{}{suffix}", tenths / 10, tenths % 10)
+    } else {
+        format!("{}{suffix}", n / unit)
+    }
+}
+
+/// Formats how long ago `time` was, e.g. `just now`, `5 minutes ago`, `2 years ago`.
+pub fn relative_date(time: DateTime<Utc>, now: DateTime<Utc>) -> String {
+    let secs = (now - time).num_seconds();
+    let days = secs / 86_400;
+    let (n, unit) = if secs < 60 {
+        return "just now".into();
+    } else if secs < 3600 {
+        (secs / 60, "minute")
+    } else if secs < 86_400 {
+        (secs / 3600, "hour")
+    } else if days < 7 {
+        (days, "day")
+    } else if days < 30 {
+        (days / 7, "week")
+    } else if days < 365 {
+        (days / 30, "month")
+    } else {
+        (days / 365, "year")
+    };
+    let plural = if n == 1 { "" } else { "s" };
+    format!("{n} {unit}{plural} ago")
+}
+
+/// Meta line of a video page: view count and publication date.
+pub fn details_meta(details: &VideoDetails) -> String {
+    let views = details.view_count.map(|n| format!("{} views", count(n)));
+    let published = details
+        .video
+        .published
+        .map(|p| relative_date(p, Utc::now()));
+    [views, published]
+        .into_iter()
+        .flatten()
         .collect::<Vec<_>>()
         .join(" · ")
 }
@@ -52,5 +108,31 @@ mod tests {
 
         video.channel_name.clear();
         assert_eq!(video_subtitle(&video), "");
+    }
+
+    #[test]
+    fn formats_counts() {
+        assert_eq!(count(0), "0");
+        assert_eq!(count(999), "999");
+        assert_eq!(count(1_000), "1K");
+        assert_eq!(count(1_234), "1.2K");
+        assert_eq!(count(56_789), "56K");
+        assert_eq!(count(3_400_000), "3.4M");
+        assert_eq!(count(1_100_000_000), "1.1B");
+    }
+
+    #[test]
+    fn formats_relative_dates() {
+        let now: DateTime<Utc> = "2026-10-24T12:00:00Z".parse().unwrap();
+        let ago = |secs: i64| relative_date(now - chrono::Duration::seconds(secs), now);
+        assert_eq!(ago(-30), "just now");
+        assert_eq!(ago(30), "just now");
+        assert_eq!(ago(60), "1 minute ago");
+        assert_eq!(ago(5 * 60), "5 minutes ago");
+        assert_eq!(ago(3 * 3600), "3 hours ago");
+        assert_eq!(ago(86_400), "1 day ago");
+        assert_eq!(ago(3 * 7 * 86_400), "3 weeks ago");
+        assert_eq!(ago(65 * 86_400), "2 months ago");
+        assert_eq!(ago(800 * 86_400), "2 years ago");
     }
 }
