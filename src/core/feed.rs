@@ -60,6 +60,17 @@ pub fn aggregate(feeds: impl IntoIterator<Item = Vec<Video>>) -> Vec<Video> {
     videos
 }
 
+/// Fills in missing publication dates of `videos` from feed entries with the
+/// same id.
+pub fn fill_dates(videos: &mut [Video], feed: &[Video]) {
+    for video in videos.iter_mut().filter(|v| v.published.is_none()) {
+        video.published = feed
+            .iter()
+            .find(|f| f.id == video.id)
+            .and_then(|f| f.published);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::DateTime;
@@ -132,5 +143,37 @@ mod tests {
             .map(|v| v.id)
             .collect();
         assert_eq!(ids, ["d", "u"]);
+    }
+
+    #[test]
+    fn fills_missing_dates_from_feed() {
+        let mut undated = video("a", 0);
+        undated.published = None;
+        let mut videos = vec![undated, video("b", 5), video("c", 0)];
+        videos[2].published = None;
+
+        fill_dates(&mut videos, &[video("a", 10), video("b", 99)]);
+
+        assert_eq!(videos[0].published, DateTime::from_timestamp(10, 0));
+        assert_eq!(videos[1].published, DateTime::from_timestamp(5, 0), "kept");
+        assert_eq!(videos[2].published, None, "not in feed");
+    }
+
+    #[test]
+    fn parses_real_feed() {
+        let videos =
+            parse_channel_feed(include_bytes!("../../tests/fixtures/channel_feed_real.xml"))
+                .unwrap();
+        assert_eq!(videos.len(), 15);
+        assert!(
+            videos
+                .iter()
+                .all(|v| v.channel_id == "UCsXVk37bltHxD1rDPwtNM8Q")
+        );
+        assert!(
+            videos
+                .iter()
+                .all(|v| v.id.len() == 11 && v.published.is_some())
+        );
     }
 }

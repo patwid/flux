@@ -101,7 +101,14 @@ impl Backend for RustyPipeBackend {
     }
 
     async fn channel(&self, channel_id: &str) -> Result<(Channel, Vec<Video>)> {
-        let c = self.client.query().channel_videos(channel_id).await?;
+        // Channel tabs lack publication dates; the RSS feed has them for the
+        // latest uploads.
+        let query = self.client.query();
+        let (c, feed) = futures::join!(
+            query.channel_videos(channel_id),
+            self.channel_feed(channel_id)
+        );
+        let c = c?;
         let channel = Channel {
             id: c.id,
             name: c.name,
@@ -118,7 +125,9 @@ impl Backend for RustyPipeBackend {
                 v.channel_name.clone_from(&channel.name);
                 v
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let mut videos = videos;
+        feed::fill_dates(&mut videos, &feed.unwrap_or_default());
         Ok((channel, videos))
     }
 
@@ -340,5 +349,19 @@ mod tests {
         let backend = RustyPipeBackend::new(dir.path()).unwrap();
         let items = backend.search("kurzgesagt").await.unwrap();
         assert!(!items.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn channel_real_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = RustyPipeBackend::new(dir.path()).unwrap();
+        let (channel, videos) = backend.channel("UCsXVk37bltHxD1rDPwtNM8Q").await.unwrap();
+        assert_eq!(channel.id, "UCsXVk37bltHxD1rDPwtNM8Q");
+        assert!(!videos.is_empty());
+        assert!(
+            videos.iter().any(|v| v.published.is_some()),
+            "dates from RSS"
+        );
     }
 }
