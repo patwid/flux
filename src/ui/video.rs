@@ -11,9 +11,11 @@ use relm4::{
 use super::player_view::{self, PlayerView};
 use super::{Services, format, images, log_db_error, widgets};
 use crate::core::model::{
-    Channel, Comment, CommentPage, DownloadKind, PlaybackSource, Streams, Video, VideoDetails,
+    Channel, Comment, CommentPage, DownloadKind, PlaybackSource, Streams, SubtitleTrack, Video,
+    VideoDetails,
 };
 use crate::core::streams;
+use crate::core::subtitles::Cue;
 
 use crate::core::streams::DEFAULT_MAX_HEIGHT as MAX_HEIGHT;
 
@@ -42,6 +44,14 @@ pub struct Comments {
     pub error: Option<String>,
 }
 
+/// The subtitle tracks of a video and the one shown.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Subtitles {
+    pub tracks: Vec<SubtitleTrack>,
+    /// Index of the chosen track; `None` when subtitles are off.
+    pub selected: Option<usize>,
+}
+
 /// GTK-independent state of a video page.
 #[derive(Debug)]
 pub struct State {
@@ -50,6 +60,7 @@ pub struct State {
     pub playback: Load<PlaybackSource>,
     pub subscribed: bool,
     pub comments: Comments,
+    pub subtitles: Subtitles,
     /// Position to start playback at, in seconds.
     resume_at: u32,
     /// Last position written to the history.
@@ -85,6 +96,10 @@ pub enum Msg {
     ShowComments,
     MoreComments,
     Comments(Result<CommentPage, String>),
+    /// Shows the subtitle track with this index, or none.
+    SelectSubtitles(Option<usize>),
+    /// The cues of the track with this index were loaded.
+    Subtitles(usize, Result<Vec<Cue>, String>),
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -92,6 +107,15 @@ pub enum Effect {
     LoadDetails(String),
     LoadStreams(String),
     LoadComments(String),
+    LoadSubtitles {
+        index: usize,
+        url: String,
+    },
+    /// Offers the subtitle tracks with these names in the player.
+    ShowSubtitleTracks(Vec<String>),
+    /// Shows these cues in the player; none turns subtitles off.
+    ShowSubtitles(Vec<Cue>),
+    SubtitlesFailed(String),
     Play {
         source: PlaybackSource,
         start_at: u32,
@@ -124,6 +148,7 @@ impl State {
             playback: Load::Loading,
             subscribed: init.subscribed,
             comments: Comments::default(),
+            subtitles: Subtitles::default(),
             resume_at,
             saved_position: None,
         };
@@ -155,7 +180,20 @@ impl State {
             }
             Msg::Details(Err(e)) => self.details = Load::Failed(e),
             Msg::Streams(Ok(streams)) => match streams::choose_source(&streams, MAX_HEIGHT) {
-                Some(source) => return self.play(source),
+                Some(source) => {
+                    let mut effects = self.play(source);
+                    self.subtitles.tracks = streams.subtitles;
+                    let names: Vec<_> = self
+                        .subtitles
+                        .tracks
+                        .iter()
+                        .map(|t| t.name.clone())
+                        .collect();
+                    if !names.is_empty() {
+                        effects.push(Effect::ShowSubtitleTracks(names));
+                    }
+                    return effects;
+                }
                 None => self.playback = Load::Failed("No playable stream found".into()),
             },
             Msg::Streams(Err(e)) => self.playback = Load::Failed(e),
@@ -209,6 +247,30 @@ impl State {
                 self.comments.error = Some(e);
                 self.comments.loading = false;
             }
+            Msg::SelectSubtitles(None) => {
+                self.subtitles.selected = None;
+                return vec![Effect::ShowSubtitles(Vec::new())];
+            }
+            Msg::SelectSubtitles(Some(index)) => {
+                if let Some(track) = self.subtitles.tracks.get(index) {
+                    self.subtitles.selected = Some(index);
+                    return vec![Effect::LoadSubtitles {
+                        index,
+                        url: track.url.clone(),
+                    }];
+                }
+            }
+            Msg::Subtitles(index, result) if self.subtitles.selected == Some(index) => {
+                return vec![match result {
+                    Ok(cues) => Effect::ShowSubtitles(cues),
+                    Err(e) => {
+                        self.subtitles.selected = None;
+                        Effect::SubtitlesFailed(e)
+                    }
+                }];
+            }
+            // A previous choice.
+            Msg::Subtitles(..) => {}
         }
         Vec::new()
     }
@@ -554,6 +616,9 @@ impl Component for VideoPage {
                 .forward(sender.input_sender(), |out| match out {
                     player_view::Output::Progress(p) => PageMsg::State(Msg::Progress(p)),
                     player_view::Output::ToggleFullscreen => PageMsg::ToggleFullscreen,
+                    player_view::Output::SelectSubtitles(index) => {
+                        PageMsg::State(Msg::SelectSubtitles(index))
+                    }
                 });
         let model = VideoPage {
             state,
@@ -694,6 +759,22 @@ impl VideoPage {
                         Msg::Comments(backend.comments(&token).await.map_err(|e| e.to_string()))
                     });
                 }
+                Effect::LoadSubtitles { index, url } => {
+                    let backend = self.services.backend.clone();
+                    sender.oneshot_command(async move {
+                        let cues = backend.subtitles(&url).await.map_err(|e| e.to_string());
+                        Msg::Subtitles(index, cues)
+                    });
+                }
+                Effect::ShowSubtitleTracks(names) => {
+                    self.player.emit(player_view::Msg::SetSubtitleTracks(names));
+                }
+                Effect::ShowSubtitles(cues) => {
+                    self.player.emit(player_view::Msg::SetSubtitles(cues));
+                }
+                Effect::SubtitlesFailed(e) => {
+                    self.player.emit(player_view::Msg::SubtitlesFailed(e));
+                }
                 Effect::Play { source, start_at } => {
                     self.player
                         .emit(player_view::Msg::Load { source, start_at });
@@ -747,7 +828,8 @@ impl VideoPage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::model::{AudioStream, Comment, CommentPage, VideoStream};
+    use crate::core::model::{AudioStream, Comment, CommentPage, SubtitleTrack, VideoStream};
+    use crate::core::subtitles::Cue;
 
     fn video(id: &str) -> Video {
         Video {
@@ -1076,5 +1158,99 @@ mod tests {
         let (mut state, _) = State::new(init());
         assert!(state.update(Msg::ShowComments).is_empty());
         assert!(state.update(Msg::MoreComments).is_empty());
+    }
+
+    fn track(lang: &str) -> SubtitleTrack {
+        SubtitleTrack {
+            name: lang.to_uppercase(),
+            lang: lang.into(),
+            url: format!("https://subs/{lang}"),
+        }
+    }
+
+    fn cues() -> Vec<Cue> {
+        vec![Cue {
+            start: std::time::Duration::ZERO,
+            end: std::time::Duration::from_secs(1),
+            text: "Hi".into(),
+        }]
+    }
+
+    fn with_tracks() -> State {
+        let (mut state, _) = State::new(init());
+        let effects = state.update(Msg::Streams(Ok(Streams {
+            subtitles: vec![track("en"), track("de")],
+            ..muxed()
+        })));
+        assert_eq!(
+            effects.last(),
+            Some(&Effect::ShowSubtitleTracks(vec!["EN".into(), "DE".into()]))
+        );
+        state
+    }
+
+    #[test]
+    fn selecting_subtitles_loads_and_shows_them() {
+        let mut state = with_tracks();
+        assert_eq!(state.subtitles.selected, None, "off by default");
+
+        assert_eq!(
+            state.update(Msg::SelectSubtitles(Some(1))),
+            [Effect::LoadSubtitles {
+                index: 1,
+                url: "https://subs/de".into()
+            }]
+        );
+        assert_eq!(
+            state.update(Msg::Subtitles(1, Ok(cues()))),
+            [Effect::ShowSubtitles(cues())]
+        );
+
+        assert_eq!(
+            state.update(Msg::SelectSubtitles(None)),
+            [Effect::ShowSubtitles(vec![])]
+        );
+        assert_eq!(state.subtitles.selected, None);
+    }
+
+    #[test]
+    fn subtitles_of_a_previous_choice_are_ignored() {
+        let mut state = with_tracks();
+        state.update(Msg::SelectSubtitles(Some(0)));
+        state.update(Msg::SelectSubtitles(Some(1)));
+
+        assert!(state.update(Msg::Subtitles(0, Ok(cues()))).is_empty());
+        state.update(Msg::SelectSubtitles(None));
+        assert!(state.update(Msg::Subtitles(1, Ok(cues()))).is_empty());
+    }
+
+    #[test]
+    fn failed_subtitles_turn_them_off() {
+        let mut state = with_tracks();
+        state.update(Msg::SelectSubtitles(Some(0)));
+
+        assert_eq!(
+            state.update(Msg::Subtitles(0, Err("HTTP 429".into()))),
+            [Effect::SubtitlesFailed("HTTP 429".into())]
+        );
+        assert_eq!(state.subtitles.selected, None);
+    }
+
+    #[test]
+    fn unknown_tracks_are_ignored() {
+        let mut state = with_tracks();
+        assert!(state.update(Msg::SelectSubtitles(Some(5))).is_empty());
+        assert_eq!(state.subtitles.selected, None);
+    }
+
+    #[test]
+    fn videos_without_subtitles_show_no_tracks() {
+        let (mut state, _) = State::new(init());
+        let effects = state.update(Msg::Streams(Ok(muxed())));
+        assert!(
+            !effects
+                .iter()
+                .any(|e| matches!(e, Effect::ShowSubtitleTracks(_)))
+        );
     }
 }

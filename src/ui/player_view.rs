@@ -9,11 +9,18 @@ use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk}
 use super::aspect::AspectLayout;
 use super::format;
 use crate::core::model::PlaybackSource;
+use crate::core::subtitles::{self, Cue};
 use crate::player::Engine;
 
 /// Ticks (of the 500 ms position timer) without activity before the
 /// controls hide during playback.
 const HIDE_AFTER_TICKS: u32 = 6;
+
+/// How often the shown subtitle is updated.
+const SUBTITLE_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Ticks a notice (e.g. a subtitle error) stays in the subtitle area.
+const NOTICE_TICKS: u32 = 8;
 
 /// Visibility of the playback controls: they hide while playing after a
 /// few seconds without user activity and always show while paused.
@@ -64,6 +71,18 @@ pub struct PlayerView {
     status: Status,
     controls: Controls,
     fullscreen: bool,
+    /// Cues of the shown subtitle track; empty when subtitles are off.
+    cues: Vec<Cue>,
+    /// The subtitle text at the current position.
+    subtitle: Option<String>,
+    subtitle_timer: Option<gtk::glib::SourceId>,
+    /// A message shown in place of subtitles, with the ticks it remains.
+    notice: Option<(String, u32)>,
+    has_subtitle_tracks: bool,
+    subtitle_menu: gtk::Box,
+    subtitle_popover: gtk::Popover,
+    /// The "Off" entry of `subtitle_menu`.
+    subtitles_off: Option<gtk::CheckButton>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -96,6 +115,14 @@ pub enum Msg {
     Tap,
     /// The pointer moved over the video.
     Activity,
+    /// Offers subtitle tracks with these names.
+    SetSubtitleTracks(Vec<String>),
+    /// Shows these cues; none turns subtitles off.
+    SetSubtitles(Vec<Cue>),
+    SubtitlesFailed(String),
+    /// The user chose a subtitle track, or none.
+    ChooseSubtitles(Option<usize>),
+    SubtitleTick,
 }
 
 #[derive(Debug)]
@@ -103,6 +130,8 @@ pub enum Output {
     /// Current playback position in seconds.
     Progress(u32),
     ToggleFullscreen,
+    /// The user chose the subtitle track with this index, or none.
+    SelectSubtitles(Option<usize>),
 }
 
 #[relm4::component(pub)]
@@ -146,6 +175,25 @@ impl Component for PlayerView {
                     set_content_fit: gtk::ContentFit::Contain,
                     set_can_shrink: true,
                     set_hexpand: true,
+                },
+
+                add_overlay = &gtk::Label {
+                    set_halign: gtk::Align::Center,
+                    set_valign: gtk::Align::End,
+                    set_margin_start: 12,
+                    set_margin_end: 12,
+                    set_wrap: true,
+                    set_justify: gtk::Justification::Center,
+                    set_can_target: false,
+                    #[watch]
+                    set_css_classes: if model.fullscreen { &["player-subtitle", "large"] } else { &["player-subtitle"] },
+                    // Above the controls while they show.
+                    #[watch]
+                    set_margin_bottom: if model.controls.visible() { 60 } else { 12 },
+                    #[watch]
+                    set_visible: model.subtitle_text().is_some(),
+                    #[watch]
+                    set_label: model.subtitle_text().unwrap_or_default(),
                 },
 
                 add_overlay = &adw::Spinner {
@@ -239,6 +287,15 @@ impl Component for PlayerView {
                         ),
                     },
 
+                    gtk::MenuButton {
+                        set_icon_name: "media-view-subtitles-symbolic",
+                        set_tooltip_text: Some("Subtitles"),
+                        set_direction: gtk::ArrowType::Up,
+                        #[watch]
+                        set_visible: model.has_subtitle_tracks,
+                        set_popover: Some(subtitle_popover),
+                    },
+
                     gtk::Button {
                         #[watch]
                         set_icon_name: if model.fullscreen {
@@ -268,8 +325,21 @@ impl Component for PlayerView {
             status: Status::Loading,
             controls: Controls::default(),
             fullscreen: false,
+            cues: Vec::new(),
+            subtitle: None,
+            subtitle_timer: None,
+            notice: None,
+            has_subtitle_tracks: false,
+            subtitle_menu: gtk::Box::default(),
+            subtitle_popover: gtk::Popover::default(),
+            subtitles_off: None,
         };
         let picture = &model.picture;
+        model
+            .subtitle_menu
+            .set_orientation(gtk::Orientation::Vertical);
+        model.subtitle_popover.set_child(Some(&model.subtitle_menu));
+        let subtitle_popover = &model.subtitle_popover;
         let widgets = view_output!();
 
         let tick = sender.input_sender().clone();
@@ -333,6 +403,16 @@ impl Component for PlayerView {
             Msg::SetFullscreen(fullscreen) => self.fullscreen = fullscreen,
             Msg::Tick => {
                 self.controls.tick(self.playing);
+                // Keep the controls, and with them the open menu, visible.
+                if self.subtitle_popover.is_visible() {
+                    self.controls.activity();
+                }
+                if let Some((_, ticks)) = &mut self.notice {
+                    *ticks -= 1;
+                    if *ticks == 0 {
+                        self.notice = None;
+                    }
+                }
                 if let Some(engine) = &self.engine
                     && self.status == Status::Ready
                 {
@@ -356,6 +436,23 @@ impl Component for PlayerView {
             }
             Msg::ToggleFullscreen => {
                 let _ = sender.output(Output::ToggleFullscreen);
+            }
+            Msg::SetSubtitleTracks(names) => self.fill_subtitle_menu(&names, &sender),
+            Msg::SetSubtitles(cues) => self.set_cues(cues, &sender),
+            Msg::SubtitlesFailed(e) => {
+                self.notice = Some((format!("Cannot load subtitles: {e}"), NOTICE_TICKS));
+                if let Some(off) = &self.subtitles_off {
+                    off.set_active(true);
+                }
+            }
+            Msg::ChooseSubtitles(index) => {
+                self.subtitle_popover.popdown();
+                let _ = sender.output(Output::SelectSubtitles(index));
+            }
+            Msg::SubtitleTick => {
+                if let Some(position) = self.engine.as_ref().and_then(Engine::position) {
+                    self.subtitle = subtitles::text_at(&self.cues, position);
+                }
             }
         }
     }
@@ -416,6 +513,60 @@ impl PlayerView {
         };
         if result.is_ok() {
             self.playing = playing;
+        }
+    }
+
+    /// The text in the subtitle area.
+    fn subtitle_text(&self) -> Option<&str> {
+        match &self.notice {
+            Some((notice, _)) => Some(notice),
+            None => self.subtitle.as_deref(),
+        }
+    }
+
+    /// Fills the subtitle menu with "Off" (chosen) and the tracks.
+    fn fill_subtitle_menu(&mut self, names: &[String], sender: &ComponentSender<Self>) {
+        while let Some(child) = self.subtitle_menu.first_child() {
+            self.subtitle_menu.remove(&child);
+        }
+        let entry = |label: &str, index: Option<usize>| {
+            let button = gtk::CheckButton::with_label(label);
+            let input = sender.input_sender().clone();
+            button.connect_toggled(move |button| {
+                if button.is_active() {
+                    let _ = input.send(Msg::ChooseSubtitles(index));
+                }
+            });
+            self.subtitle_menu.append(&button);
+            button
+        };
+        let off = entry("Off", None);
+        off.set_active(true);
+        for (index, name) in names.iter().enumerate() {
+            entry(name, Some(index)).set_group(Some(&off));
+        }
+        self.subtitles_off = Some(off);
+        self.has_subtitle_tracks = !names.is_empty();
+    }
+
+    /// Shows `cues`, updating the text while there are any.
+    fn set_cues(&mut self, cues: Vec<Cue>, sender: &ComponentSender<Self>) {
+        self.cues = cues;
+        self.subtitle = None;
+        if self.cues.is_empty() {
+            if let Some(timer) = self.subtitle_timer.take() {
+                timer.remove();
+            }
+        } else if self.subtitle_timer.is_none() {
+            let input = sender.input_sender().clone();
+            self.subtitle_timer =
+                Some(gtk::glib::timeout_add_local(SUBTITLE_INTERVAL, move || {
+                    if input.send(Msg::SubtitleTick).is_ok() {
+                        gtk::glib::ControlFlow::Continue
+                    } else {
+                        gtk::glib::ControlFlow::Break
+                    }
+                }));
         }
     }
 

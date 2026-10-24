@@ -7,3 +7,15 @@
   border-radius: 6px;
   background-color: alpha(currentColor, 0.1);
 }
+
+.player-subtitle {
+  background-color: rgba(0, 0, 0, 0.75);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 1.1em;
+}
+
+.player-subtitle.large {
+  font-size: 1.6em;
+}

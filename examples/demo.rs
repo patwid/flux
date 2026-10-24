@@ -10,8 +10,10 @@ use chrono::Utc;
 use flux::core::backend::fake::FakeBackend;
 use flux::core::db::Db;
 use flux::core::model::{
-    Channel, Comment, CommentPage, SearchItem, Streams, Video, VideoDetails, VideoStream,
+    Channel, Comment, CommentPage, SearchItem, Streams, SubtitleTrack, Video, VideoDetails,
+    VideoStream,
 };
+use flux::core::subtitles::Cue;
 use flux::ui::Services;
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -55,6 +57,37 @@ fn thumbnail(path: &Path, pattern: &str) {
         &[gst::MessageType::Eos, gst::MessageType::Error],
     );
     pipeline.set_state(gst::State::Null).unwrap();
+}
+
+/// Subtitle tracks for every demo video; the last one fails to load.
+fn subtitle_tracks() -> Vec<SubtitleTrack> {
+    [
+        ("English", "en"),
+        ("German (auto-generated)", "de"),
+        ("Unavailable", "xx"),
+    ]
+    .into_iter()
+    .map(|(name, lang)| SubtitleTrack {
+        name: name.into(),
+        lang: lang.into(),
+        url: format!("demo-subtitles-{lang}"),
+    })
+    .collect()
+}
+
+/// One cue per two seconds, counting up.
+fn subtitle_cues(prefix: &str) -> Vec<Cue> {
+    (0..5)
+        .map(|i| Cue {
+            start: std::time::Duration::from_secs(i * 2),
+            end: std::time::Duration::from_secs(i * 2 + 2),
+            text: if i == 2 {
+                format!("{prefix} {i}, a longer subtitle\nwith a second line")
+            } else {
+                format!("{prefix} {i}")
+            },
+        })
+        .collect()
 }
 
 /// Two pages of generated comments, the first one by the channel and pinned.
@@ -139,6 +172,7 @@ fn main() {
                     ranges: None,
                     size: None,
                 }],
+                subtitles: subtitle_tracks(),
                 ..Default::default()
             },
         );
@@ -163,6 +197,9 @@ fn main() {
             },
         });
     }
+    backend = backend
+        .with_subtitles("demo-subtitles-en", subtitle_cues("Subtitle"))
+        .with_subtitles("demo-subtitles-de", subtitle_cues("Untertitel"));
     let [first, second] = comment_pages(&channel);
     backend = backend
         .with_comments("demo-comments-1", first)

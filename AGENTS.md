@@ -14,7 +14,7 @@ contributing to the code, human or agent.
 - **Responsive UI**: it must work at 360×640 (phone portrait) and scale up to desktop windows.
 - **Features (v1)**:
   1. **Search**: search for videos and channels.
-  2. **Playback**: play videos in-app, with quality selection and seeking.
+  2. **Playback**: play videos in-app, with quality selection, seeking and subtitles (off by default).
   3. **Subscriptions**: subscribe to channels and get an aggregated feed from RSS.
   4. **History**: keep a watch history with resume position, and let the user clear it.
   5. **Download**: download videos or audio to disk, with progress and cancel. Downloaded items can be played offline.
@@ -36,7 +36,7 @@ contributing to the code, human or agent.
 | UI            | GTK4 and libadwaita via `relm4` (The Elm Architecture). Target the **latest GNOME** (currently GNOME 50: relm4 feature `gnome_50`, libadwaita 1.9, GTK 4.22) and prefer modern libadwaita widgets (e.g. `AdwSpinner`, `AdwMultiLayoutView`, `AdwViewSwitcherSidebar`, `AdwToggleGroup`, `AdwWrapBox`) over older or GTK-only equivalents. |
 | Extraction    | `rustypipe` (YouTube internal API, pure Rust) for search, details and channels. Stream URLs come from YouTube's visionOS player client (`core/backend/visionos.rs`), because rustypipe's clients' URLs only serve the start of a video without a PO token. rustypipe's player is the fallback. |
 | Subscriptions | YouTube channel RSS (`https://www.youtube.com/feeds/videos.xml?channel_id=…`) |
-| Playback      | GStreamer (`playbin3` + `gtk4paintablesink` → `gtk::Picture`). Separate video/audio streams are played through a generated DASH manifest, so they are fetched in bounded byte ranges. |
+| Playback      | GStreamer (`playbin3` + `gtk4paintablesink` → `gtk::Picture`). Separate video/audio streams are played through a generated DASH manifest, so they are fetched in bounded byte ranges. Subtitles are WebVTT from the player response, drawn over the video by the player widget rather than by GStreamer. |
 | Storage       | SQLite via `rusqlite`, with schema migrations and the DB in `$XDG_DATA_HOME/flux/` |
 | Downloads     | Own downloader: 10 MiB byte-range chunks (YouTube refuses whole-file requests), muxed with ffmpeg; saved to `$XDG_DOWNLOAD_DIR/Flux/` |
 | Async         | `tokio`, through Relm4 commands/workers                                         |
@@ -62,6 +62,7 @@ src/
     backend/           # traits Backend and Downloader; rustypipe and fake impls; feed refresh
     feed.rs            # RSS/Atom parsing → Vec<Video>; feed aggregation and sorting
     streams.rs         # choosing streams / playback source
+    subtitles.rs       # WebVTT parsing; the cue to show at a position
     db.rs              # rusqlite: subscriptions, history, downloads, feed cache
     download.rs        # download queue state machine and file naming
   player.rs            # GStreamer playback engine (no gtk; sinks are injected)
