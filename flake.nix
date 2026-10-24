@@ -36,6 +36,9 @@
             rust-analyzer
             ffmpeg
           ];
+          # The package's wrapper sets this; without it GStreamer (libsoup)
+          # has no TLS and cannot open https streams.
+          GIO_EXTRA_MODULES = "${pkgs.glib-networking}/lib/gio/modules";
         };
       });
 
