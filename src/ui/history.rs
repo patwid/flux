@@ -75,32 +75,34 @@ impl Component for HistoryPage {
     type CommandOutput = ();
 
     view! {
-        gtk::Stack {
-            #[watch]
-            set_visible_child_name: if model.state.entries.is_empty() { "empty" } else { "list" },
-
-            add_named[Some("empty")] = &adw::StatusPage {
-                set_icon_name: Some("document-open-recent-symbolic"),
-                set_title: "No History",
-                set_description: Some("Videos you watch appear here"),
+        adw::ToolbarView {
+            add_top_bar = &adw::HeaderBar {
+                #[wrap(Some)]
+                set_title_widget = &adw::WindowTitle {
+                    set_title: "History",
+                },
+                pack_end = &gtk::Button {
+                    set_icon_name: "edit-clear-all-symbolic",
+                    set_tooltip_text: Some("Clear History"),
+                    #[watch]
+                    set_visible: !model.state.entries.is_empty(),
+                    connect_clicked => Input::ConfirmClear,
+                },
             },
-            add_named[Some("list")] = &gtk::ScrolledWindow {
-                set_hscrollbar_policy: gtk::PolicyType::Never,
 
-                adw::Clamp {
-                    set_maximum_size: 800,
+            #[wrap(Some)]
+            set_content = &gtk::Stack {
+                add_named[Some("empty")] = &adw::StatusPage {
+                    set_icon_name: Some("document-open-recent-symbolic"),
+                    set_title: "No History",
+                    set_description: Some("Videos you watch appear here"),
+                },
+                add_named[Some("list")] = &gtk::ScrolledWindow {
+                    set_hscrollbar_policy: gtk::PolicyType::Never,
 
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 12,
+                    adw::Clamp {
+                        set_maximum_size: 800,
                         set_margin_all: 12,
-
-                        gtk::Button {
-                            set_label: "Clear History",
-                            set_halign: gtk::Align::End,
-                            add_css_class: "flat",
-                            connect_clicked => Input::ConfirmClear,
-                        },
 
                         #[local_ref]
                         list -> gtk::ListBox {
@@ -110,6 +112,9 @@ impl Component for HistoryPage {
                         },
                     },
                 },
+
+                #[watch]
+                set_visible_child_name: if model.state.entries.is_empty() { "empty" } else { "list" },
             },
         }
     }

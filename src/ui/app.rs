@@ -183,6 +183,13 @@ impl Component for App {
             model.downloads.widget().upcast_ref(),
         );
 
+        let entry = model.search.model().entry.clone();
+        stack.connect_visible_child_name_notify(move |stack| {
+            if stack.visible_child_name().as_deref() == Some("search") {
+                entry.grab_focus();
+            }
+        });
+
         widgets.layouts.add_layout(wide_layout(&stack));
         widgets.layouts.add_layout(narrow_layout(&stack));
         widgets.layouts.set_child("content", &stack);
@@ -281,7 +288,6 @@ fn wide_layout(stack: &adw::ViewStack) -> adw::Layout {
     let sidebar = adw::ToolbarView::new();
     sidebar.add_top_bar(
         &adw::HeaderBar::builder()
-            .show_end_title_buttons(false)
             .title_widget(&adw::WindowTitle::new("Flux", ""))
             .build(),
     );
@@ -289,22 +295,9 @@ fn wide_layout(stack: &adw::ViewStack) -> adw::Layout {
         &adw::ViewSwitcherSidebar::builder().stack(stack).build(),
     ));
 
-    let content = adw::ToolbarView::new();
-    let title = adw::WindowTitle::new("", "");
-    stack
-        .bind_property("visible-child-name", &title, "title")
-        .transform_to(|binding, _: Option<String>| {
-            let stack = binding.source()?.downcast::<adw::ViewStack>().ok()?;
-            stack.page(&stack.visible_child()?).title()
-        })
-        .sync_create()
-        .build();
-    content.add_top_bar(&adw::HeaderBar::builder().title_widget(&title).build());
-    content.set_content(Some(&adw::LayoutSlot::new("content")));
-
     let split = adw::OverlaySplitView::builder()
         .sidebar(&sidebar)
-        .content(&content)
+        .content(&adw::LayoutSlot::new("content"))
         .build();
     let layout = adw::Layout::new(&split);
     layout.set_name(Some("wide"));
@@ -314,7 +307,6 @@ fn wide_layout(stack: &adw::ViewStack) -> adw::Layout {
 /// Mobile layout: sections in a bottom bar.
 fn narrow_layout(stack: &adw::ViewStack) -> adw::Layout {
     let view = adw::ToolbarView::new();
-    view.add_top_bar(&adw::HeaderBar::new());
     view.set_content(Some(&adw::LayoutSlot::new("content")));
     view.add_bottom_bar(
         &adw::ViewSwitcherBar::builder()

@@ -43,29 +43,39 @@ impl Component for DownloadsPage {
     type CommandOutput = ();
 
     view! {
-        gtk::Stack {
-            #[watch]
-            set_visible_child_name: if model.queue.downloads.is_empty() { "empty" } else { "list" },
-
-            add_named[Some("empty")] = &adw::StatusPage {
-                set_icon_name: Some("folder-download-symbolic"),
-                set_title: "No Downloads",
-                set_description: Some("Download videos to watch them offline"),
+        adw::ToolbarView {
+            add_top_bar = &adw::HeaderBar {
+                #[wrap(Some)]
+                set_title_widget = &adw::WindowTitle {
+                    set_title: "Downloads",
+                },
             },
-            add_named[Some("list")] = &gtk::ScrolledWindow {
-                set_hscrollbar_policy: gtk::PolicyType::Never,
 
-                adw::Clamp {
-                    set_maximum_size: 800,
-                    set_margin_all: 12,
+            #[wrap(Some)]
+            set_content = &gtk::Stack {
+                add_named[Some("empty")] = &adw::StatusPage {
+                    set_icon_name: Some("folder-download-symbolic"),
+                    set_title: "No Downloads",
+                    set_description: Some("Download videos to watch them offline"),
+                },
+                add_named[Some("list")] = &gtk::ScrolledWindow {
+                    set_hscrollbar_policy: gtk::PolicyType::Never,
 
-                    #[local_ref]
-                    list -> gtk::ListBox {
-                        connect_row_activated[sender] => move |_, row| {
-                            sender.input(Input::Activate(row.index() as usize));
+                    adw::Clamp {
+                        set_maximum_size: 800,
+                        set_margin_all: 12,
+
+                        #[local_ref]
+                        list -> gtk::ListBox {
+                            connect_row_activated[sender] => move |_, row| {
+                                sender.input(Input::Activate(row.index() as usize));
+                            },
                         },
                     },
                 },
+
+                #[watch]
+                set_visible_child_name: if model.queue.downloads.is_empty() { "empty" } else { "list" },
             },
         }
     }

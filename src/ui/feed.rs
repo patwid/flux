@@ -125,57 +125,43 @@ impl Component for FeedPage {
     type CommandOutput = FeedRefresh;
 
     view! {
-        gtk::Stack {
-            #[watch]
-            set_visible_child_name: if !model.state.has_subscriptions() {
-                "empty"
-            } else if model.state.videos.is_empty() && model.state.refreshing {
-                "loading"
-            } else {
-                "list"
+        adw::ToolbarView {
+            add_top_bar = &adw::HeaderBar {
+                #[wrap(Some)]
+                set_title_widget = &adw::WindowTitle {
+                    set_title: "Feed",
+                    #[watch]
+                    set_subtitle: &model.status_text(),
+                },
+                pack_start = &gtk::Button {
+                    set_icon_name: "view-refresh-symbolic",
+                    set_tooltip_text: Some("Refresh"),
+                    #[watch]
+                    set_visible: model.state.has_subscriptions(),
+                    #[watch]
+                    set_sensitive: !model.state.refreshing,
+                    connect_clicked => Input::State(Msg::Refresh),
+                },
             },
 
-            add_named[Some("empty")] = &adw::StatusPage {
-                set_icon_name: Some("view-list-symbolic"),
-                set_title: "No Subscriptions",
-                set_description: Some("Subscribe to channels to see their new videos here"),
-            },
-            add_named[Some("loading")] = &adw::Spinner {
-                set_size_request: (48, 48),
-                set_halign: gtk::Align::Center,
-                set_valign: gtk::Align::Center,
-            },
-            add_named[Some("list")] = &gtk::ScrolledWindow {
-                set_hscrollbar_policy: gtk::PolicyType::Never,
+            #[wrap(Some)]
+            set_content = &gtk::Stack {
+                add_named[Some("empty")] = &adw::StatusPage {
+                    set_icon_name: Some("view-list-symbolic"),
+                    set_title: "No Subscriptions",
+                    set_description: Some("Subscribe to channels to see their new videos here"),
+                },
+                add_named[Some("loading")] = &adw::Spinner {
+                    set_size_request: (48, 48),
+                    set_halign: gtk::Align::Center,
+                    set_valign: gtk::Align::Center,
+                },
+                add_named[Some("list")] = &gtk::ScrolledWindow {
+                    set_hscrollbar_policy: gtk::PolicyType::Never,
 
-                adw::Clamp {
-                    set_maximum_size: 800,
-
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 12,
+                    adw::Clamp {
+                        set_maximum_size: 800,
                         set_margin_all: 12,
-
-                        gtk::Box {
-                            set_spacing: 6,
-
-                            gtk::Label {
-                                set_hexpand: true,
-                                set_xalign: 0.0,
-                                set_wrap: true,
-                                add_css_class: "dimmed",
-                                #[watch]
-                                set_label: &model.status_text(),
-                            },
-                            gtk::Button {
-                                set_icon_name: "view-refresh-symbolic",
-                                set_tooltip_text: Some("Refresh"),
-                                add_css_class: "flat",
-                                #[watch]
-                                set_sensitive: !model.state.refreshing,
-                                connect_clicked => Input::State(Msg::Refresh),
-                            },
-                        },
 
                         #[local_ref]
                         list -> gtk::ListBox {
@@ -184,6 +170,15 @@ impl Component for FeedPage {
                             },
                         },
                     },
+                },
+
+                #[watch]
+                set_visible_child_name: if !model.state.has_subscriptions() {
+                    "empty"
+                } else if model.state.videos.is_empty() && model.state.refreshing {
+                    "loading"
+                } else {
+                    "list"
                 },
             },
         }
@@ -263,6 +258,9 @@ impl Component for FeedPage {
 
 impl FeedPage {
     fn status_text(&self) -> String {
+        if !self.state.has_subscriptions() {
+            return String::new();
+        }
         if self.state.refreshing {
             return "Refreshing…".into();
         }

@@ -27,29 +27,39 @@ impl Component for SubscriptionsPage {
     type CommandOutput = ();
 
     view! {
-        gtk::Stack {
-            #[watch]
-            set_visible_child_name: if model.channels.is_empty() { "empty" } else { "list" },
-
-            add_named[Some("empty")] = &adw::StatusPage {
-                set_icon_name: Some("starred-symbolic"),
-                set_title: "No Subscriptions",
-                set_description: Some("Channels you subscribe to appear here"),
+        adw::ToolbarView {
+            add_top_bar = &adw::HeaderBar {
+                #[wrap(Some)]
+                set_title_widget = &adw::WindowTitle {
+                    set_title: "Subscriptions",
+                },
             },
-            add_named[Some("list")] = &gtk::ScrolledWindow {
-                set_hscrollbar_policy: gtk::PolicyType::Never,
 
-                adw::Clamp {
-                    set_maximum_size: 800,
-                    set_margin_all: 12,
+            #[wrap(Some)]
+            set_content = &gtk::Stack {
+                add_named[Some("empty")] = &adw::StatusPage {
+                    set_icon_name: Some("starred-symbolic"),
+                    set_title: "No Subscriptions",
+                    set_description: Some("Channels you subscribe to appear here"),
+                },
+                add_named[Some("list")] = &gtk::ScrolledWindow {
+                    set_hscrollbar_policy: gtk::PolicyType::Never,
 
-                    #[local_ref]
-                    list -> gtk::ListBox {
-                        connect_row_activated[sender] => move |_, row| {
-                            sender.input(Msg::Activate(row.index() as usize));
+                    adw::Clamp {
+                        set_maximum_size: 800,
+                        set_margin_all: 12,
+
+                        #[local_ref]
+                        list -> gtk::ListBox {
+                            connect_row_activated[sender] => move |_, row| {
+                                sender.input(Msg::Activate(row.index() as usize));
+                            },
                         },
                     },
                 },
+
+                #[watch]
+                set_visible_child_name: if model.channels.is_empty() { "empty" } else { "list" },
             },
         }
     }

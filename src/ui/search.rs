@@ -89,6 +89,8 @@ pub struct SearchPage {
     state: State,
     backend: Arc<dyn Backend>,
     results: gtk::ListBox,
+    /// The search entry, focused when the section is shown.
+    pub entry: gtk::SearchEntry,
 }
 
 #[derive(Debug)]
@@ -105,37 +107,31 @@ impl Component for SearchPage {
     type CommandOutput = Msg;
 
     view! {
-        gtk::Box {
-            set_orientation: gtk::Orientation::Vertical,
+        adw::ToolbarView {
+            add_top_bar = &adw::HeaderBar {
+                #[wrap(Some)]
+                set_title_widget = &adw::Clamp {
+                    set_maximum_size: 400,
+                    set_hexpand: true,
 
-            adw::Clamp {
-                set_maximum_size: 800,
-                set_margin_all: 12,
-
-                gtk::SearchEntry {
-                    set_placeholder_text: Some("Search videos and channels"),
-                    connect_search_changed[sender] => move |e| {
-                        sender.input(Msg::QueryChanged(e.text().into()));
-                    },
-                    // `search-changed` is delayed; submit what is typed right now.
-                    connect_activate[sender] => move |e| {
-                        sender.input(Msg::QueryChanged(e.text().into()));
-                        sender.input(Msg::Submit);
+                    #[local_ref]
+                    entry -> gtk::SearchEntry {
+                        set_placeholder_text: Some("Search videos and channels"),
+                        set_key_capture_widget: Some(&root),
+                        connect_search_changed[sender] => move |e| {
+                            sender.input(Msg::QueryChanged(e.text().into()));
+                        },
+                        // `search-changed` is delayed; submit what is typed right now.
+                        connect_activate[sender] => move |e| {
+                            sender.input(Msg::QueryChanged(e.text().into()));
+                            sender.input(Msg::Submit);
+                        },
                     },
                 },
             },
 
-            gtk::Stack {
-                set_vexpand: true,
-                #[watch]
-                set_visible_child_name: match &model.state.status {
-                    Status::Idle => "idle",
-                    Status::Loading => "loading",
-                    Status::Loaded(items) if items.is_empty() => "empty",
-                    Status::Loaded(_) => "results",
-                    Status::Failed(_) => "failed",
-                },
-
+            #[wrap(Some)]
+            set_content = &gtk::Stack {
                 add_named[Some("idle")] = &adw::StatusPage {
                     set_icon_name: Some("system-search-symbolic"),
                     set_title: "Search",
@@ -174,6 +170,15 @@ impl Component for SearchPage {
                         },
                     },
                 },
+
+                #[watch]
+                set_visible_child_name: match &model.state.status {
+                    Status::Idle => "idle",
+                    Status::Loading => "loading",
+                    Status::Loaded(items) if items.is_empty() => "empty",
+                    Status::Loaded(_) => "results",
+                    Status::Failed(_) => "failed",
+                },
             },
         }
     }
@@ -187,8 +192,10 @@ impl Component for SearchPage {
             state: State::default(),
             backend,
             results: widgets::boxed_list(),
+            entry: gtk::SearchEntry::new(),
         };
         let results = &model.results;
+        let entry = &model.entry;
         let widgets = view_output!();
         ComponentParts { model, widgets }
     }
