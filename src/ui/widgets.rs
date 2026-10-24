@@ -20,6 +20,12 @@ pub fn video_row(video: &Video) -> adw::ActionRow {
     row
 }
 
+/// Adds a chevron to a row that opens a page.
+pub fn with_chevron(row: adw::ActionRow) -> adw::ActionRow {
+    row.add_suffix(&gtk::Image::from_icon_name("go-next-symbolic"));
+    row
+}
+
 /// A small 16:9 thumbnail, loaded asynchronously.
 pub fn thumbnail(url: Option<&str>) -> gtk::Widget {
     let picture = gtk::Picture::builder()
@@ -48,7 +54,7 @@ pub fn avatar(channel: &Channel, size: i32) -> adw::Avatar {
     avatar
 }
 
-/// An activatable list row for a channel.
+/// An activatable list row for a channel, opening its page.
 pub fn channel_row(channel: &Channel, subtitle: Option<&str>) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .activatable(true)
@@ -57,7 +63,7 @@ pub fn channel_row(channel: &Channel, subtitle: Option<&str>) -> adw::ActionRow 
         .subtitle(subtitle.unwrap_or_default())
         .build();
     row.add_prefix(&avatar(channel, 40));
-    row
+    with_chevron(row)
 }
 
 /// A boxed list for rows of videos or channels.

@@ -217,7 +217,8 @@ impl Component for ChannelPage {
             self.list.remove_all();
             if let Load::Loaded(videos) = &self.state.videos {
                 for video in videos {
-                    self.list.append(&widgets::video_row(video));
+                    self.list
+                        .append(&widgets::with_chevron(widgets::video_row(video)));
                 }
             }
         }

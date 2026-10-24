@@ -246,7 +246,8 @@ impl Component for FeedPage {
         if reload {
             self.list.remove_all();
             for video in &self.state.videos {
-                self.list.append(&widgets::video_row(video));
+                self.list
+                    .append(&widgets::with_chevron(widgets::video_row(video)));
             }
         }
     }

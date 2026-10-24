@@ -773,7 +773,7 @@ impl VideoPage {
         if let Load::Loaded(details) = &self.state.details {
             images::set_avatar(&self.avatar, details.channel.avatar_url.as_deref());
             for (index, video) in details.related.iter().enumerate() {
-                let row = widgets::video_row(video);
+                let row = widgets::with_chevron(widgets::video_row(video));
                 let input = sender.input_sender().clone();
                 row.connect_activated(move |_| {
                     input.emit(PageMsg::State(Msg::OpenRelated(index)));
