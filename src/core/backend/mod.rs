@@ -2,6 +2,7 @@
 
 pub mod fake;
 pub mod rustypipe;
+pub mod visionos;
 
 use async_trait::async_trait;
 

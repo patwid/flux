@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use rustypipe::client::RustyPipe;
 use rustypipe::model::{self as rp, richtext::ToPlaintext};
 
-use super::{Backend, BackendError, Downloader, ProgressFn, Result};
+use super::{Backend, BackendError, Downloader, ProgressFn, Result, visionos};
 use crate::core::feed;
 use crate::core::model::SegmentRanges;
 use crate::core::model::{
@@ -92,6 +92,10 @@ impl Backend for RustyPipeBackend {
     }
 
     async fn streams(&self, video_id: &str) -> Result<Streams> {
+        match self.visionos_streams(video_id).await {
+            Ok(streams) => return Ok(streams),
+            Err(e) => eprintln!("flux: visionOS player failed, using rustypipe: {e}"),
+        }
         let p = self.client.query().player(video_id).await?;
         Ok(Streams {
             muxed: p.video_streams.into_iter().map(video_stream).collect(),
@@ -144,6 +148,13 @@ impl Backend for RustyPipeBackend {
             .bytes()
             .await?;
         feed::parse_channel_feed(&xml).map_err(|e| BackendError::Other(e.to_string()))
+    }
+}
+
+impl RustyPipeBackend {
+    async fn visionos_streams(&self, video_id: &str) -> Result<Streams> {
+        let visitor_data = self.client.query().get_visitor_data(false).await?;
+        visionos::fetch_streams(&self.http, video_id, &visitor_data).await
     }
 }
 
@@ -236,6 +247,7 @@ fn video_stream(s: rp::VideoStream) -> VideoStream {
         bitrate: s.bitrate,
         mime: s.mime,
         ranges: segment_ranges(s.init_range, s.index_range),
+        size: s.size,
     }
 }
 
@@ -255,6 +267,7 @@ fn audio_stream(s: rp::AudioStream) -> AudioStream {
         bitrate: s.bitrate,
         mime: s.mime,
         ranges: segment_ranges(s.init_range, s.index_range),
+        size: Some(s.size),
     }
 }
 
@@ -378,5 +391,27 @@ mod tests {
             videos.iter().any(|v| v.published.is_some()),
             "dates from RSS"
         );
+    }
+
+    /// Stream URLs must serve the whole file, not only its beginning.
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn streams_serve_whole_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = RustyPipeBackend::new(dir.path()).unwrap();
+        let streams = backend.streams("HPjZDlQexeY").await.unwrap();
+        let video = streams
+            .video_only
+            .iter()
+            .find(|v| v.size.is_some_and(|s| s > 40_000_000))
+            .expect("a large stream");
+        let status = reqwest::Client::new()
+            .get(&video.url)
+            .header("Range", "bytes=30000000-30000999")
+            .send()
+            .await
+            .unwrap()
+            .status();
+        assert_eq!(status, reqwest::StatusCode::PARTIAL_CONTENT);
     }
 }

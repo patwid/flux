@@ -567,6 +567,7 @@ dependencies = [
  "rusqlite_migration",
  "rustypipe",
  "rustypipe-downloader",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

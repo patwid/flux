@@ -124,6 +124,7 @@ mod tests {
                     bitrate: 1,
                     mime: "video/webm".into(),
                     ranges: None,
+                    size: None,
                 }],
                 ..Default::default()
             },

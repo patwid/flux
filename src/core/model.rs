@@ -75,6 +75,8 @@ pub struct VideoStream {
     /// MIME type including codecs, e.g. `video/mp4; codecs="avc1.4d401e"`.
     pub mime: String,
     pub ranges: Option<SegmentRanges>,
+    /// File size in bytes, if known.
+    pub size: Option<u64>,
 }
 
 /// An audio-only stream.
@@ -84,6 +86,8 @@ pub struct AudioStream {
     pub bitrate: u32,
     pub mime: String,
     pub ranges: Option<SegmentRanges>,
+    /// File size in bytes, if known.
+    pub size: Option<u64>,
 }
 
 /// Everything needed to play a video.

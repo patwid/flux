@@ -90,6 +90,7 @@ mod tests {
             bitrate: 3_000_000,
             mime: "video/mp4; codecs=\"avc1.4D401F\"".into(),
             ranges: ranges(),
+            size: None,
         }
     }
 
@@ -102,6 +103,7 @@ mod tests {
                 init: (0, 631),
                 index: (632, 999),
             }),
+            size: None,
         }
     }
 

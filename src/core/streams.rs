@@ -92,6 +92,7 @@ mod tests {
             bitrate,
             mime: format!("video/mp4; codecs=\"{codec}\""),
             ranges: None,
+            size: None,
         }
     }
 
@@ -101,6 +102,7 @@ mod tests {
             bitrate,
             mime: "audio/webm; codecs=\"opus\"".into(),
             ranges: None,
+            size: None,
         }
     }
 

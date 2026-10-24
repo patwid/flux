@@ -96,6 +96,7 @@ fn main() {
                     bitrate: 1,
                     mime: "video/webm; codecs=\"vp8\"".into(),
                     ranges: None,
+                    size: None,
                 }],
                 ..Default::default()
             },
