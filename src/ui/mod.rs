@@ -5,6 +5,7 @@ pub mod feed;
 pub mod format;
 pub mod player_view;
 pub mod search;
+pub mod subscriptions;
 pub mod video;
 pub mod widgets;
 

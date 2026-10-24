@@ -1,0 +1,91 @@
+//! Subscriptions page: the subscribed channels.
+
+use relm4::adw::prelude::*;
+use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
+
+use super::{Services, log_db_error, widgets};
+use crate::core::model::Channel;
+
+pub struct SubscriptionsPage {
+    services: Services,
+    channels: Vec<Channel>,
+    list: gtk::ListBox,
+}
+
+#[derive(Debug)]
+pub enum Msg {
+    /// Re-reads the subscriptions from the database.
+    Reload,
+    Activate(usize),
+}
+
+#[relm4::component(pub)]
+impl Component for SubscriptionsPage {
+    type Init = Services;
+    type Input = Msg;
+    type Output = Channel;
+    type CommandOutput = ();
+
+    view! {
+        gtk::Stack {
+            #[watch]
+            set_visible_child_name: if model.channels.is_empty() { "empty" } else { "list" },
+
+            add_named[Some("empty")] = &adw::StatusPage {
+                set_icon_name: Some("starred-symbolic"),
+                set_title: "No Subscriptions",
+                set_description: Some("Channels you subscribe to appear here"),
+            },
+            add_named[Some("list")] = &gtk::ScrolledWindow {
+                set_hscrollbar_policy: gtk::PolicyType::Never,
+
+                adw::Clamp {
+                    set_maximum_size: 800,
+                    set_margin_all: 12,
+
+                    #[local_ref]
+                    list -> gtk::ListBox {
+                        connect_row_activated[sender] => move |_, row| {
+                            sender.input(Msg::Activate(row.index() as usize));
+                        },
+                    },
+                },
+            },
+        }
+    }
+
+    fn init(
+        services: Services,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = SubscriptionsPage {
+            services,
+            channels: Vec::new(),
+            list: widgets::boxed_list(),
+        };
+        let list = &model.list;
+        let widgets = view_output!();
+        sender.input(Msg::Reload);
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, _root: &Self::Root) {
+        match msg {
+            Msg::Reload => {
+                self.channels = log_db_error(self.services.db.subscriptions()).unwrap_or_default();
+                self.list.remove_all();
+                for channel in &self.channels {
+                    let row = widgets::channel_row(channel);
+                    row.set_subtitle("");
+                    self.list.append(&row);
+                }
+            }
+            Msg::Activate(index) => {
+                if let Some(channel) = self.channels.get(index) {
+                    let _ = sender.output(channel.clone());
+                }
+            }
+        }
+    }
+}

@@ -1,6 +1,10 @@
 //! Channel page: a channel's latest uploads.
 
+use relm4::adw::prelude::*;
+use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
+
 use super::video::Load;
+use super::{Services, log_db_error, widgets};
 use crate::core::model::{Channel, Video};
 
 /// GTK-independent state of a channel page.
@@ -64,6 +68,167 @@ impl State {
             }
         }
         Vec::new()
+    }
+}
+
+pub struct ChannelPage {
+    state: State,
+    services: Services,
+    list: gtk::ListBox,
+}
+
+#[derive(Debug)]
+pub enum Output {
+    OpenVideo(Video),
+    SubscriptionsChanged,
+}
+
+#[relm4::component(pub)]
+impl Component for ChannelPage {
+    type Init = (Services, Channel);
+    type Input = Msg;
+    type Output = Output;
+    type CommandOutput = Msg;
+
+    view! {
+        adw::ToolbarView {
+            add_top_bar = &adw::HeaderBar {},
+
+            #[wrap(Some)]
+            set_content = &gtk::ScrolledWindow {
+                set_hscrollbar_policy: gtk::PolicyType::Never,
+
+                adw::Clamp {
+                    set_maximum_size: 800,
+
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 18,
+                        set_margin_all: 12,
+
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Vertical,
+                            set_spacing: 12,
+                            set_margin_top: 12,
+
+                            adw::Avatar {
+                                set_size: 96,
+                                set_show_initials: true,
+                                #[watch]
+                                set_text: Some(&model.state.channel.name),
+                            },
+                            gtk::Label {
+                                add_css_class: "title-2",
+                                set_wrap: true,
+                                set_justify: gtk::Justification::Center,
+                                #[watch]
+                                set_label: &model.state.channel.name,
+                            },
+                            gtk::Button {
+                                set_halign: gtk::Align::Center,
+                                add_css_class: "pill",
+                                #[watch]
+                                set_label: if model.state.subscribed { "Unsubscribe" } else { "Subscribe" },
+                                #[watch]
+                                set_css_classes: if model.state.subscribed { &["pill"] } else { &["pill", "suggested-action"] },
+                                connect_clicked => Msg::ToggleSubscribe,
+                            },
+                        },
+
+                        gtk::Stack {
+                            #[watch]
+                            set_visible_child_name: match &model.state.videos {
+                                Load::Loading => "loading",
+                                Load::Loaded(_) => "list",
+                                Load::Failed(_) => "failed",
+                            },
+
+                            add_named[Some("loading")] = &adw::Spinner {
+                                set_size_request: (32, 32),
+                            },
+                            add_named[Some("failed")] = &adw::StatusPage {
+                                set_icon_name: Some("dialog-error-symbolic"),
+                                set_title: "Cannot Load Channel",
+                                add_css_class: "compact",
+                                #[watch]
+                                set_description: match &model.state.videos {
+                                    Load::Failed(e) => Some(e.as_str()),
+                                    _ => None,
+                                },
+                            },
+                            #[local_ref]
+                            add_named[Some("list")] = list -> gtk::ListBox {
+                                connect_row_activated[sender] => move |_, row| {
+                                    sender.input(Msg::Activate(row.index() as usize));
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+    }
+
+    fn init(
+        (services, channel): Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let subscribed = log_db_error(services.db.is_subscribed(&channel.id)).unwrap_or(false);
+        let (state, effects) = State::new(channel, subscribed);
+        let model = ChannelPage {
+            state,
+            services,
+            list: widgets::boxed_list(),
+        };
+        let list = &model.list;
+        let widgets = view_output!();
+        model.run(effects, &sender);
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, _root: &Self::Root) {
+        let loaded = matches!(msg, Msg::Loaded(_));
+        let effects = self.state.update(msg);
+        self.run(effects, &sender);
+        if loaded {
+            self.list.remove_all();
+            if let Load::Loaded(videos) = &self.state.videos {
+                for video in videos {
+                    self.list.append(&widgets::video_row(video));
+                }
+            }
+        }
+    }
+
+    fn update_cmd(&mut self, msg: Msg, sender: ComponentSender<Self>, root: &Self::Root) {
+        self.update(msg, sender, root);
+    }
+}
+
+impl ChannelPage {
+    fn run(&self, effects: Vec<Effect>, sender: &ComponentSender<Self>) {
+        for effect in effects {
+            match effect {
+                Effect::Load(id) => {
+                    let backend = self.services.backend.clone();
+                    sender.oneshot_command(async move {
+                        Msg::Loaded(backend.channel(&id).await.map_err(|e| e.to_string()))
+                    });
+                }
+                Effect::Subscribe(channel) => {
+                    log_db_error(self.services.db.subscribe(&channel));
+                    let _ = sender.output(Output::SubscriptionsChanged);
+                }
+                Effect::Unsubscribe(id) => {
+                    log_db_error(self.services.db.unsubscribe(&id));
+                    let _ = sender.output(Output::SubscriptionsChanged);
+                }
+                Effect::OpenVideo(video) => {
+                    let _ = sender.output(Output::OpenVideo(video));
+                }
+            }
+        }
     }
 }
 

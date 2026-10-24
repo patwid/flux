@@ -1,8 +1,11 @@
 //! Feed page: new videos from subscribed channels.
 
 use chrono::{DateTime, Utc};
+use relm4::adw::prelude::*;
+use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
-use crate::core::backend::FeedRefresh;
+use super::{Services, format, log_db_error, widgets};
+use crate::core::backend::{self, FeedRefresh};
 use crate::core::feed;
 use crate::core::model::Video;
 
@@ -97,6 +100,181 @@ impl State {
         }
         self.refreshing = true;
         vec![Effect::Refresh(self.channel_ids.clone())]
+    }
+}
+
+pub struct FeedPage {
+    state: State,
+    services: Services,
+    list: gtk::ListBox,
+    refreshed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug)]
+pub enum Input {
+    State(Msg),
+    /// Re-reads the cached feed and subscriptions from the database.
+    Reload,
+}
+
+#[relm4::component(pub)]
+impl Component for FeedPage {
+    type Init = Services;
+    type Input = Input;
+    type Output = Video;
+    type CommandOutput = FeedRefresh;
+
+    view! {
+        gtk::Stack {
+            #[watch]
+            set_visible_child_name: if !model.state.has_subscriptions() {
+                "empty"
+            } else if model.state.videos.is_empty() && model.state.refreshing {
+                "loading"
+            } else {
+                "list"
+            },
+
+            add_named[Some("empty")] = &adw::StatusPage {
+                set_icon_name: Some("view-list-symbolic"),
+                set_title: "No Subscriptions",
+                set_description: Some("Subscribe to channels to see their new videos here"),
+            },
+            add_named[Some("loading")] = &adw::Spinner {
+                set_size_request: (48, 48),
+                set_halign: gtk::Align::Center,
+                set_valign: gtk::Align::Center,
+            },
+            add_named[Some("list")] = &gtk::ScrolledWindow {
+                set_hscrollbar_policy: gtk::PolicyType::Never,
+
+                adw::Clamp {
+                    set_maximum_size: 800,
+
+                    gtk::Box {
+                        set_orientation: gtk::Orientation::Vertical,
+                        set_spacing: 12,
+                        set_margin_all: 12,
+
+                        gtk::Box {
+                            set_spacing: 6,
+
+                            gtk::Label {
+                                set_hexpand: true,
+                                set_xalign: 0.0,
+                                set_wrap: true,
+                                add_css_class: "dimmed",
+                                #[watch]
+                                set_label: &model.status_text(),
+                            },
+                            gtk::Button {
+                                set_icon_name: "view-refresh-symbolic",
+                                set_tooltip_text: Some("Refresh"),
+                                add_css_class: "flat",
+                                #[watch]
+                                set_sensitive: !model.state.refreshing,
+                                connect_clicked => Input::State(Msg::Refresh),
+                            },
+                        },
+
+                        #[local_ref]
+                        list -> gtk::ListBox {
+                            connect_row_activated[sender] => move |_, row| {
+                                sender.input(Input::State(Msg::Activate(row.index() as usize)));
+                            },
+                        },
+                    },
+                },
+            },
+        }
+    }
+
+    fn init(
+        services: Services,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = FeedPage {
+            state: State::default(),
+            services,
+            list: widgets::boxed_list(),
+            refreshed_at: None,
+        };
+        let list = &model.list;
+        let widgets = view_output!();
+        sender.input(Input::Reload);
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, input: Input, sender: ComponentSender<Self>, _root: &Self::Root) {
+        let msg = match input {
+            Input::State(msg) => msg,
+            Input::Reload => {
+                let db = &self.services.db;
+                self.refreshed_at = log_db_error(db.feed_refreshed_at()).flatten();
+                Msg::Load {
+                    videos: log_db_error(db.feed()).unwrap_or_default(),
+                    refreshed_at: self.refreshed_at,
+                    channel_ids: log_db_error(db.subscriptions())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|c| c.id)
+                        .collect(),
+                    now: Utc::now(),
+                }
+            }
+        };
+        let reload = matches!(msg, Msg::Load { .. } | Msg::Refreshed(_));
+        for effect in self.state.update(msg) {
+            match effect {
+                Effect::Refresh(ids) => {
+                    let backend = self.services.backend.clone();
+                    sender.oneshot_command(
+                        async move { backend::refresh_feed(&*backend, &ids).await },
+                    );
+                }
+                Effect::Store(videos) => {
+                    let now = Utc::now();
+                    log_db_error(self.services.db.store_feed(&videos, now));
+                    self.refreshed_at = Some(now);
+                }
+                Effect::OpenVideo(video) => {
+                    let _ = sender.output(video);
+                }
+            }
+        }
+        if reload {
+            self.list.remove_all();
+            for video in &self.state.videos {
+                self.list.append(&widgets::video_row(video));
+            }
+        }
+    }
+
+    fn update_cmd(
+        &mut self,
+        refresh: FeedRefresh,
+        sender: ComponentSender<Self>,
+        root: &Self::Root,
+    ) {
+        self.update(Input::State(Msg::Refreshed(refresh)), sender, root);
+    }
+}
+
+impl FeedPage {
+    fn status_text(&self) -> String {
+        if self.state.refreshing {
+            return "Refreshing…".into();
+        }
+        let updated = match self.refreshed_at {
+            Some(at) => format!("Updated {}", format::relative_date(at, Utc::now())),
+            None => "Not refreshed yet".into(),
+        };
+        match self.state.errors.len() {
+            0 => updated,
+            1 => format!("{updated} · 1 channel failed"),
+            n => format!("{updated} · {n} channels failed"),
+        }
     }
 }
 

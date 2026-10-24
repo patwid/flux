@@ -3,7 +3,10 @@ use relm4::{
     Component, ComponentController, ComponentParts, ComponentSender, Controller, adw, gtk,
 };
 
+use super::channel::{self, ChannelPage};
+use super::feed::FeedPage;
 use super::search::{self, SearchPage};
+use super::subscriptions::{self, SubscriptionsPage};
 use super::video::{self, VideoPage};
 use super::{Services, log_db_error};
 use crate::core::model::{Channel, DownloadKind, Video};
@@ -13,11 +16,19 @@ const NARROW_WIDTH_SP: f64 = 550.0;
 
 pub struct App {
     services: Services,
+    feed: Controller<FeedPage>,
     search: Controller<SearchPage>,
+    subscriptions: Controller<SubscriptionsPage>,
     toasts: adw::ToastOverlay,
     navigation: adw::NavigationView,
     /// Pages pushed onto the navigation view, kept alive while shown.
-    pages: Vec<(adw::NavigationPage, Controller<VideoPage>)>,
+    pages: Vec<(adw::NavigationPage, Page)>,
+}
+
+/// A page pushed onto the navigation view.
+enum Page {
+    Video(Controller<VideoPage>),
+    Channel(Controller<ChannelPage>),
 }
 
 #[derive(Debug)]
@@ -34,6 +45,15 @@ impl From<search::Output> for Msg {
         match out {
             search::Output::OpenVideo(v) => Msg::OpenVideo(v),
             search::Output::OpenChannel(c) => Msg::OpenChannel(c),
+        }
+    }
+}
+
+impl From<channel::Output> for Msg {
+    fn from(out: channel::Output) -> Self {
+        match out {
+            channel::Output::OpenVideo(v) => Msg::OpenVideo(v),
+            channel::Output::SubscriptionsChanged => Msg::SubscriptionsChanged,
         }
     }
 }
@@ -90,12 +110,20 @@ impl Component for App {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         relm4::set_global_css(include_str!("style.css"));
+        let feed = FeedPage::builder()
+            .launch(services.clone())
+            .forward(sender.input_sender(), Msg::OpenVideo);
         let search = SearchPage::builder()
             .launch(services.backend.clone())
             .forward(sender.input_sender(), Msg::from);
+        let subscriptions = SubscriptionsPage::builder()
+            .launch(services.clone())
+            .forward(sender.input_sender(), Msg::OpenChannel);
         let model = App {
             services,
+            feed,
             search,
+            subscriptions,
             toasts: adw::ToastOverlay::new(),
             navigation: adw::NavigationView::new(),
             pages: Vec::new(),
@@ -118,7 +146,7 @@ impl Component for App {
             "feed",
             "Feed",
             "view-list-symbolic",
-            placeholder("Feed", "view-list-symbolic").upcast_ref(),
+            model.feed.widget().upcast_ref(),
         );
         add_page(
             "search",
@@ -126,8 +154,13 @@ impl Component for App {
             "system-search-symbolic",
             model.search.widget().upcast_ref(),
         );
+        add_page(
+            "subscriptions",
+            "Subscriptions",
+            "starred-symbolic",
+            model.subscriptions.widget().upcast_ref(),
+        );
         for (name, title, icon) in [
-            ("subscriptions", "Subscriptions", "starred-symbolic"),
             ("history", "History", "document-open-recent-symbolic"),
             ("downloads", "Downloads", "folder-download-symbolic"),
         ] {
@@ -153,13 +186,14 @@ impl Component for App {
     fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
             Msg::OpenVideo(video) => self.open_video(video, &sender),
-            Msg::OpenChannel(c) => {
-                self.toast(&format!("Channels not implemented yet: {}", c.name));
-            }
+            Msg::OpenChannel(channel) => self.open_channel(channel, &sender),
             Msg::Download(v, _) => {
                 self.toast(&format!("Downloads not implemented yet: {}", v.title));
             }
-            Msg::SubscriptionsChanged => {}
+            Msg::SubscriptionsChanged => {
+                self.feed.emit(super::feed::Input::Reload);
+                self.subscriptions.emit(subscriptions::Msg::Reload);
+            }
             Msg::Popped(page) => self.pages.retain(|(p, _)| *p != page),
         }
     }
@@ -184,9 +218,25 @@ impl App {
         let controller = VideoPage::builder()
             .launch((self.services.clone(), init))
             .forward(sender.input_sender(), Msg::from);
-        let page = adw::NavigationPage::new(controller.widget(), &title);
-        self.navigation.push(&page);
-        self.pages.push((page, controller));
+        self.push(&title, Page::Video(controller));
+    }
+
+    fn open_channel(&mut self, channel: Channel, sender: &ComponentSender<Self>) {
+        let title = channel.name.clone();
+        let controller = ChannelPage::builder()
+            .launch((self.services.clone(), channel))
+            .forward(sender.input_sender(), Msg::from);
+        self.push(&title, Page::Channel(controller));
+    }
+
+    fn push(&mut self, title: &str, page: Page) {
+        let widget: gtk::Widget = match &page {
+            Page::Video(c) => c.widget().clone().upcast(),
+            Page::Channel(c) => c.widget().clone().upcast(),
+        };
+        let nav_page = adw::NavigationPage::new(&widget, title);
+        self.navigation.push(&nav_page);
+        self.pages.push((nav_page, page));
     }
 }
 
