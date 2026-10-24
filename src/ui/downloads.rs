@@ -18,7 +18,7 @@ pub struct DownloadsPage {
     /// Running download tasks, for cancelling.
     tasks: HashMap<i64, relm4::JoinHandle<()>>,
     /// Rows of the listed downloads, to update progress in place.
-    rows: HashMap<i64, (adw::ActionRow, gtk::ProgressBar)>,
+    rows: HashMap<i64, adw::ActionRow>,
     /// Subtitles saved by finished downloads, until they are completed.
     saved_subtitles: HashMap<i64, Vec<SubtitleTrack>>,
 }
@@ -232,12 +232,6 @@ impl DownloadsPage {
                 });
                 button
             };
-            let progress = gtk::ProgressBar::builder()
-                .valign(gtk::Align::Center)
-                .width_request(48)
-                .visible(download.status == DownloadStatus::Running)
-                .build();
-            row.add_suffix(&progress);
             match download.status {
                 DownloadStatus::Queued | DownloadStatus::Running => {
                     row.add_suffix(&button("process-stop-symbolic", "Cancel", Msg::Cancel));
@@ -252,13 +246,13 @@ impl DownloadsPage {
             }
             row.set_activatable(download.status == DownloadStatus::Completed);
             self.list.append(&row);
-            self.rows.insert(id, (row, progress));
+            self.rows.insert(id, row);
             self.update_progress(id);
         }
     }
 
     fn update_progress(&self, id: i64) {
-        let (Some((row, bar)), Some(download)) = (
+        let (Some(row), Some(download)) = (
             self.rows.get(&id),
             self.queue.downloads.iter().find(|d| d.id == id),
         ) else {
@@ -266,6 +260,5 @@ impl DownloadsPage {
         };
         let progress = self.queue.progress.get(&id).copied();
         row.set_subtitle(&format::download_status(download, progress));
-        bar.set_fraction(progress.unwrap_or(0.0));
     }
 }
