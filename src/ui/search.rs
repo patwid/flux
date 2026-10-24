@@ -138,11 +138,7 @@ impl Component for SearchPage {
                     set_title: "Search",
                     set_description: Some("Find videos and channels"),
                 },
-                add_named[Some("loading")] = &adw::Spinner {
-                    set_size_request: (48, 48),
-                    set_halign: gtk::Align::Center,
-                    set_valign: gtk::Align::Center,
-                },
+                add_named[Some("loading")] = &widgets::loading_page("Searching"),
                 add_named[Some("empty")] = &adw::StatusPage {
                     set_icon_name: Some("system-search-symbolic"),
                     set_title: "No Results",

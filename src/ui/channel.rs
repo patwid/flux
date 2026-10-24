@@ -145,8 +145,8 @@ impl Component for ChannelPage {
                                 Load::Failed(_) => "failed",
                             },
 
-                            add_named[Some("loading")] = &adw::Spinner {
-                                set_size_request: (32, 32),
+                            add_named[Some("loading")] = &widgets::loading_page("") {
+                                add_css_class: "compact",
                             },
                             add_named[Some("failed")] = &adw::StatusPage {
                                 set_icon_name: Some("dialog-error-symbolic"),

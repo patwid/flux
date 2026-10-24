@@ -160,11 +160,7 @@ impl Component for FeedPage {
                     set_title: "No Subscriptions",
                     set_description: Some("Subscribe to channels to see their new videos here"),
                 },
-                add_named[Some("loading")] = &adw::Spinner {
-                    set_size_request: (48, 48),
-                    set_halign: gtk::Align::Center,
-                    set_valign: gtk::Align::Center,
-                },
+                add_named[Some("loading")] = &widgets::loading_page("Loading Feed"),
                 add_named[Some("list")] = &gtk::ScrolledWindow {
                     set_hscrollbar_policy: gtk::PolicyType::Never,
 

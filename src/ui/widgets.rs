@@ -82,3 +82,10 @@ pub fn primary_menu() -> gtk::MenuButton {
         .primary(true)
         .build()
 }
+
+/// A status page with a spinner, for content that is loading.
+pub fn loading_page(title: &str) -> adw::StatusPage {
+    let page = adw::StatusPage::builder().title(title).build();
+    page.set_paintable(Some(&adw::SpinnerPaintable::new(Some(&page))));
+    page
+}
