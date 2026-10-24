@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::model::{
-    AudioStream, Download, DownloadKind, DownloadStatus, Streams, Video, VideoStream,
+    AudioStream, Download, DownloadKind, DownloadStatus, Streams, SubtitleTrack, Video, VideoStream,
 };
 use super::streams;
 
@@ -122,6 +122,39 @@ pub fn download_path(dir: &Path, video: &Video, kind: DownloadKind) -> PathBuf {
         DownloadKind::Audio => "m4a",
     };
     dir.join(format!("{}.{ext}", file_stem(video)))
+}
+
+/// Where to save `tracks` next to the video at `video`, named like
+/// `<video stem>.<lang>[.auto].vtt` so that other players find them too.
+pub fn subtitle_paths(video: &Path, tracks: &[SubtitleTrack]) -> Vec<PathBuf> {
+    let stem = video.file_stem().unwrap_or_default().to_string_lossy();
+    let mut taken = HashMap::new();
+    tracks
+        .iter()
+        .map(|track| {
+            let lang: String = track
+                .lang
+                .chars()
+                .map(|c| {
+                    if c.is_alphanumeric() || c == '-' {
+                        c
+                    } else {
+                        '_'
+                    }
+                })
+                .collect();
+            let auto = if track.auto_generated { ".auto" } else { "" };
+            let name = format!("{lang}{auto}");
+            let count = taken.entry(name.clone()).or_insert(0);
+            *count += 1;
+            let n = if *count > 1 {
+                format!(".{count}")
+            } else {
+                String::new()
+            };
+            video.with_file_name(format!("{stem}.{name}{n}.vtt"))
+        })
+        .collect()
 }
 
 /// The download queue. Downloads are listed newest first; queued downloads
@@ -358,6 +391,34 @@ mod tests {
         assert_eq!(
             download_path(Path::new("/dl"), &video("abc", "T"), DownloadKind::Audio),
             PathBuf::from("/dl/T [abc].m4a")
+        );
+    }
+
+    #[test]
+    fn subtitle_paths_are_next_to_the_video_and_distinct() {
+        let track = |lang: &str, auto_generated| SubtitleTrack {
+            name: lang.into(),
+            lang: lang.into(),
+            url: String::new(),
+            auto_generated,
+        };
+        let tracks = [
+            track("en", false),
+            track("en", true),
+            track("de-DE", false),
+            track("en", false),
+            track("../x", false),
+        ];
+        assert_eq!(
+            subtitle_paths(Path::new("/dl/T [abc].mp4"), &tracks),
+            [
+                "/dl/T [abc].en.vtt",
+                "/dl/T [abc].en.auto.vtt",
+                "/dl/T [abc].de-DE.vtt",
+                "/dl/T [abc].en.2.vtt",
+                "/dl/T [abc].___x.vtt",
+            ]
+            .map(PathBuf::from)
         );
     }
 
