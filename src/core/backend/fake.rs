@@ -123,6 +123,7 @@ mod tests {
                     fps: 1,
                     bitrate: 1,
                     mime: "video/webm".into(),
+                    ranges: None,
                 }],
                 ..Default::default()
             },

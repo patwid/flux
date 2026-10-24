@@ -56,8 +56,16 @@ pub struct Download {
     pub created_at: DateTime<Utc>,
 }
 
+/// Byte ranges locating the initialization data and the segment index in a
+/// stream file, needed to stream it with DASH.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SegmentRanges {
+    pub init: (u32, u32),
+    pub index: (u32, u32),
+}
+
 /// A stream containing video (and, if muxed, audio).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct VideoStream {
     pub url: String,
     pub width: u32,
@@ -66,14 +74,16 @@ pub struct VideoStream {
     pub bitrate: u32,
     /// MIME type including codecs, e.g. `video/mp4; codecs="avc1.4d401e"`.
     pub mime: String,
+    pub ranges: Option<SegmentRanges>,
 }
 
 /// An audio-only stream.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AudioStream {
     pub url: String,
     pub bitrate: u32,
     pub mime: String,
+    pub ranges: Option<SegmentRanges>,
 }
 
 /// Everything needed to play a video.
@@ -86,6 +96,7 @@ pub struct Streams {
     /// HLS manifest (always present for live streams, sometimes for others).
     pub hls_url: Option<String>,
     pub is_live: bool,
+    pub duration_secs: Option<u32>,
 }
 
 /// An item in search results.
@@ -113,4 +124,7 @@ pub enum PlaybackSource {
     Uri(String),
     /// Separate video and audio streams played in sync.
     Split { video: String, audio: String },
+    /// A DASH manifest (MPD XML). Lets the player fetch streams in bounded
+    /// byte ranges, which YouTube requires for some videos.
+    Dash(String),
 }

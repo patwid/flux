@@ -1,4 +1,5 @@
 pub mod backend;
+pub mod dash;
 pub mod db;
 pub mod download;
 pub mod feed;

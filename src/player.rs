@@ -31,6 +31,11 @@ impl Engine {
         audio_sink: gst::Element,
     ) -> Result<Self> {
         let pipeline = match source {
+            PlaybackSource::Dash(manifest) => gst::ElementFactory::make("playbin3")
+                .property("uri", dash_uri(manifest))
+                .property("video-sink", &video_sink)
+                .property("audio-sink", &audio_sink)
+                .build()?,
             PlaybackSource::Uri(uri) => gst::ElementFactory::make("playbin3")
                 .property("uri", uri)
                 .property("video-sink", &video_sink)
@@ -81,6 +86,14 @@ impl Engine {
     pub fn bus(&self) -> gst::Bus {
         self.pipeline.bus().expect("pipelines have a bus")
     }
+}
+
+/// A `data:` URI containing a DASH manifest.
+pub fn dash_uri(manifest: &str) -> String {
+    format!(
+        "data:application/dash+xml;base64,{}",
+        gst::glib::base64_encode(manifest.as_bytes())
+    )
 }
 
 /// Adds `uridecodebin3 uri=<uri> ! <convert> ! <sink>` to `pipeline`. The
@@ -165,6 +178,12 @@ mod tests {
         engine.play().unwrap();
         let msg = wait_for(engine, &[gst::MessageType::Eos, gst::MessageType::Error]);
         assert!(matches!(msg.view(), gst::MessageView::Eos(_)), "{msg:?}");
+    }
+
+    #[test]
+    fn dash_manifest_is_passed_as_data_uri() {
+        let uri = dash_uri("<MPD/>");
+        assert_eq!(uri, "data:application/dash+xml;base64,PE1QRC8+");
     }
 
     #[test]

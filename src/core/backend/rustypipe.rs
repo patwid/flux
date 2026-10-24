@@ -7,6 +7,7 @@ use rustypipe::model::{self as rp, richtext::ToPlaintext};
 
 use super::{Backend, BackendError, Downloader, ProgressFn, Result};
 use crate::core::feed;
+use crate::core::model::SegmentRanges;
 use crate::core::model::{
     AudioStream, Channel, DownloadKind, SearchItem, Streams, Video, VideoDetails, VideoStream,
 };
@@ -98,6 +99,7 @@ impl Backend for RustyPipeBackend {
             audio: p.audio_streams.into_iter().map(audio_stream).collect(),
             hls_url: p.hls_manifest_url,
             is_live: p.details.is_live,
+            duration_secs: Some(p.details.duration),
         })
     }
 
@@ -233,7 +235,18 @@ fn video_stream(s: rp::VideoStream) -> VideoStream {
         fps: s.fps,
         bitrate: s.bitrate,
         mime: s.mime,
+        ranges: segment_ranges(s.init_range, s.index_range),
     }
+}
+
+fn segment_ranges(
+    init: Option<std::ops::Range<u32>>,
+    index: Option<std::ops::Range<u32>>,
+) -> Option<SegmentRanges> {
+    Some(SegmentRanges {
+        init: init.map(|r| (r.start, r.end))?,
+        index: index.map(|r| (r.start, r.end))?,
+    })
 }
 
 fn audio_stream(s: rp::AudioStream) -> AudioStream {
@@ -241,6 +254,7 @@ fn audio_stream(s: rp::AudioStream) -> AudioStream {
         url: s.url,
         bitrate: s.bitrate,
         mime: s.mime,
+        ranges: segment_ranges(s.init_range, s.index_range),
     }
 }
 

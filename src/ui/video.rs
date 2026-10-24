@@ -666,15 +666,18 @@ mod tests {
                 fps: 30,
                 bitrate: 1,
                 mime: "video/mp4".into(),
+                ranges: None,
             }],
             video_only: vec![],
             audio: vec![AudioStream {
                 url: "https://a".into(),
                 bitrate: 1,
                 mime: "audio/webm".into(),
+                ranges: None,
             }],
             hls_url: None,
             is_live: false,
+            duration_secs: Some(600),
         }
     }
 
