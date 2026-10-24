@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
+ <link rel="self" href="http://www.youtube.com/feeds/videos.xml?channel_id=UCsXVk37bltHxD1rDPwtNM8Q"/>
+ <id>yt:channel:sXVk37bltHxD1rDPwtNM8Q</id>
+ <yt:channelId>sXVk37bltHxD1rDPwtNM8Q</yt:channelId>
+ <title>Kurzgesagt – In a Nutshell</title>
+ <link rel="alternate" href="https://www.youtube.com/channel/UCsXVk37bltHxD1rDPwtNM8Q"/>
+ <author>
+  <name>Kurzgesagt – In a Nutshell</name>
+  <uri>https://www.youtube.com/channel/UCsXVk37bltHxD1rDPwtNM8Q</uri>
+ </author>
+ <published>2013-07-09T04:32:12+00:00</published>
+ <entry>
+  <id>yt:video:dQw4w9WgXcQ</id>
+  <yt:videoId>dQw4w9WgXcQ</yt:videoId>
+  <yt:channelId>UCsXVk37bltHxD1rDPwtNM8Q</yt:channelId>
+  <title>The Newest Video &amp; More</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=dQw4w9WgXcQ"/>
+  <author>
+   <name>Kurzgesagt – In a Nutshell</name>
+   <uri>https://www.youtube.com/channel/UCsXVk37bltHxD1rDPwtNM8Q</uri>
+  </author>
+  <published>2026-10-20T14:00:07+00:00</published>
+  <updated>2026-10-21T02:11:43+00:00</updated>
+  <media:group>
+   <media:title>The Newest Video &amp; More</media:title>
+   <media:content url="https://www.youtube.com/v/dQw4w9WgXcQ?version=3" type="application/x-shockwave-flash" width="640" height="390"/>
+   <media:thumbnail url="https://i2.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" width="480" height="360"/>
+   <media:description>Description of the newest video.</media:description>
+   <media:community>
+    <media:starRating count="12345" average="5.00" min="1" max="5"/>
+    <media:statistics views="678901"/>
+   </media:community>
+  </media:group>
+ </entry>
+ <entry>
+  <id>yt:video:9bZkp7q19f0</id>
+  <yt:videoId>9bZkp7q19f0</yt:videoId>
+  <yt:channelId>UCsXVk37bltHxD1rDPwtNM8Q</yt:channelId>
+  <title>An Older Video</title>
+  <link rel="alternate" href="https://www.youtube.com/watch?v=9bZkp7q19f0"/>
+  <author>
+   <name>Kurzgesagt – In a Nutshell</name>
+   <uri>https://www.youtube.com/channel/UCsXVk37bltHxD1rDPwtNM8Q</uri>
+  </author>
+  <published>2026-10-06T14:00:30+00:00</published>
+  <updated>2026-10-07T08:00:00+00:00</updated>
+  <media:group>
+   <media:title>An Older Video</media:title>
+   <media:content url="https://www.youtube.com/v/9bZkp7q19f0?version=3" type="application/x-shockwave-flash" width="640" height="390"/>
+   <media:thumbnail url="https://i3.ytimg.com/vi/9bZkp7q19f0/hqdefault.jpg" width="480" height="360"/>
+   <media:description>Older description.</media:description>
+   <media:community>
+    <media:starRating count="100" average="5.00" min="1" max="5"/>
+    <media:statistics views="2000"/>
+   </media:community>
+  </media:group>
+ </entry>
+</feed>
