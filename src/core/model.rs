@@ -19,3 +19,11 @@ pub struct Video {
     pub duration_secs: Option<u32>,
     pub thumbnail_url: Option<String>,
 }
+
+/// A watched video together with when it was last watched and where playback stopped.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryEntry {
+    pub video: Video,
+    pub watched_at: DateTime<Utc>,
+    pub position_secs: u32,
+}
