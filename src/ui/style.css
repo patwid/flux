@@ -27,3 +27,8 @@ button.replies {
   padding: 4px 6px;
   margin-left: -6px;
 }
+
+/* The error shown in place of the video, small enough for a phone. */
+.player statuspage.compact > scrolledwindow > viewport > box > clamp > box > .icon {
+  -gtk-icon-size: 48px;
+}

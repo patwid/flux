@@ -5,7 +5,7 @@ use std::time::Duration;
 use gstreamer as gst;
 use relm4::adw::prelude::*;
 use relm4::gtk::gio;
-use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
+use relm4::{Component, ComponentParts, ComponentSender, adw, gtk};
 
 use super::aspect::AspectLayout;
 use super::format;
@@ -224,31 +224,16 @@ impl Component for PlayerView {
                     set_visible: model.status == Status::Loading,
                 },
 
-                add_overlay = &gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 6,
-                    set_margin_all: 12,
-                    set_valign: gtk::Align::Center,
+                add_overlay = &adw::StatusPage {
+                    set_icon_name: Some("dialog-error-symbolic"),
+                    set_title: "Cannot Play Video",
+                    add_css_class: "compact",
                     #[watch]
                     set_visible: matches!(model.status, Status::Failed(_)),
-
-                    gtk::Image {
-                        set_icon_name: Some("dialog-error-symbolic"),
-                        set_pixel_size: 32,
-                    },
-                    gtk::Label {
-                        set_label: "Cannot Play Video",
-                        add_css_class: "heading",
-                    },
-                    gtk::Label {
-                        add_css_class: "caption",
-                        set_wrap: true,
-                        set_justify: gtk::Justification::Center,
-                        #[watch]
-                        set_label: match &model.status {
-                            Status::Failed(e) => e,
-                            _ => "",
-                        },
+                    #[watch]
+                    set_description: match &model.status {
+                        Status::Failed(e) => Some(e),
+                        _ => None,
                     },
                 },
 
