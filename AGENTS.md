@@ -48,6 +48,7 @@ Pure logic is kept separate from GTK so that most of the code can be tested
 without a display.
 
 ```
+migrations/            # numbered SQL schema migrations (append-only)
 src/
   main.rs              # app bootstrap only
   lib.rs               # crate root (so integration tests in tests/ can use it)

@@ -3,7 +3,9 @@ use rusqlite_migration::{M, Migrations};
 
 use chrono::{DateTime, Utc};
 
-use super::model::{Channel, HistoryEntry, Video};
+use std::path::Path;
+
+use super::model::{Channel, Download, DownloadKind, DownloadStatus, HistoryEntry, Video};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -15,29 +17,12 @@ pub enum DbError {
 
 pub type Result<T> = std::result::Result<T, DbError>;
 
+/// Schema migrations. Never edit a released migration; append a new one.
 fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
-        M::up(
-            "CREATE TABLE subscriptions (
-            channel_id TEXT PRIMARY KEY NOT NULL,
-            name TEXT NOT NULL,
-            avatar_url TEXT
-        );",
-        ),
-        M::up(
-            "CREATE TABLE history (
-            video_id TEXT PRIMARY KEY NOT NULL,
-            title TEXT NOT NULL,
-            channel_id TEXT NOT NULL,
-            channel_name TEXT NOT NULL,
-            published INTEGER,
-            duration_secs INTEGER,
-            thumbnail_url TEXT,
-            watched_at INTEGER NOT NULL,
-            position_secs INTEGER NOT NULL
-        );
-        CREATE INDEX history_watched_at ON history (watched_at);",
-        ),
+        M::up(include_str!("../../migrations/001_subscriptions.sql")),
+        M::up(include_str!("../../migrations/002_history.sql")),
+        M::up(include_str!("../../migrations/003_downloads.sql")),
     ])
 }
 
@@ -131,15 +116,7 @@ impl Db {
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(HistoryEntry {
-                video: Video {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    channel_id: row.get(2)?,
-                    channel_name: row.get(3)?,
-                    published: row.get::<_, Option<i64>>(4)?.and_then(timestamp),
-                    duration_secs: row.get(5)?,
-                    thumbnail_url: row.get(6)?,
-                },
+                video: video_from_row(row)?,
                 watched_at: timestamp(row.get(7)?).unwrap_or_default(),
                 position_secs: row.get(8)?,
             })
@@ -167,6 +144,136 @@ impl Db {
     pub fn clear_history(&self) -> Result<()> {
         self.conn.execute("DELETE FROM history", [])?;
         Ok(())
+    }
+
+    /// Adds a queued download and returns its id.
+    pub fn add_download(
+        &self,
+        video: &Video,
+        kind: DownloadKind,
+        path: &Path,
+        at: DateTime<Utc>,
+    ) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO downloads (video_id, title, channel_id, channel_name, published,
+                 duration_secs, thumbnail_url, kind, path, status, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'queued', ?10)",
+            (
+                &video.id,
+                &video.title,
+                &video.channel_id,
+                &video.channel_name,
+                video.published.map(|p| p.timestamp()),
+                video.duration_secs,
+                &video.thumbnail_url,
+                kind_to_str(kind),
+                path.to_string_lossy(),
+                at.timestamp(),
+            ),
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn set_download_status(&self, id: i64, status: &DownloadStatus) -> Result<()> {
+        let (status, error) = match status {
+            DownloadStatus::Queued => ("queued", None),
+            DownloadStatus::Running => ("running", None),
+            DownloadStatus::Completed => ("completed", None),
+            DownloadStatus::Failed(e) => ("failed", Some(e.as_str())),
+            DownloadStatus::Cancelled => ("cancelled", None),
+        };
+        self.conn.execute(
+            "UPDATE downloads SET status = ?2, error = ?3 WHERE id = ?1",
+            (id, status, error),
+        )?;
+        Ok(())
+    }
+
+    /// All downloads, newest first.
+    pub fn downloads(&self) -> Result<Vec<Download>> {
+        self.query_downloads("ORDER BY created_at DESC, id DESC", [])
+    }
+
+    /// A completed download of the given video, if any (for offline playback).
+    pub fn completed_download(&self, video_id: &str) -> Result<Option<Download>> {
+        Ok(self
+            .query_downloads(
+                "WHERE video_id = ?1 AND status = 'completed' ORDER BY created_at DESC LIMIT 1",
+                [video_id],
+            )?
+            .pop())
+    }
+
+    pub fn remove_download(&self, id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM downloads WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Re-queues downloads left running when the app last exited.
+    pub fn requeue_interrupted_downloads(&self) -> Result<()> {
+        self.conn.execute(
+            "UPDATE downloads SET status = 'queued' WHERE status = 'running'",
+            [],
+        )?;
+        Ok(())
+    }
+
+    fn query_downloads(
+        &self,
+        clause: &str,
+        params: impl rusqlite::Params,
+    ) -> Result<Vec<Download>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT video_id, title, channel_id, channel_name, published, duration_secs,
+                 thumbnail_url, id, kind, path, status, error, created_at
+             FROM downloads {clause}"
+        ))?;
+        let rows = stmt.query_map(params, |row| {
+            let status = match row.get_ref(10)?.as_str()? {
+                "running" => DownloadStatus::Running,
+                "completed" => DownloadStatus::Completed,
+                "failed" => {
+                    DownloadStatus::Failed(row.get::<_, Option<String>>(11)?.unwrap_or_default())
+                }
+                "cancelled" => DownloadStatus::Cancelled,
+                _ => DownloadStatus::Queued,
+            };
+            Ok(Download {
+                video: video_from_row(row)?,
+                id: row.get(7)?,
+                kind: if row.get_ref(8)?.as_str()? == "audio" {
+                    DownloadKind::Audio
+                } else {
+                    DownloadKind::Video
+                },
+                path: row.get::<_, String>(9)?.into(),
+                status,
+                created_at: timestamp(row.get(12)?).unwrap_or_default(),
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+}
+
+/// Reads a [`Video`] from columns 0..7 (id, title, channel_id, channel_name,
+/// published, duration_secs, thumbnail_url).
+fn video_from_row(row: &rusqlite::Row) -> rusqlite::Result<Video> {
+    Ok(Video {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        channel_id: row.get(2)?,
+        channel_name: row.get(3)?,
+        published: row.get::<_, Option<i64>>(4)?.and_then(timestamp),
+        duration_secs: row.get(5)?,
+        thumbnail_url: row.get(6)?,
+    })
+}
+
+fn kind_to_str(kind: DownloadKind) -> &'static str {
+    match kind {
+        DownloadKind::Video => "video",
+        DownloadKind::Audio => "audio",
     }
 }
 
@@ -304,5 +411,145 @@ mod tests {
 
         db.clear_history().unwrap();
         assert!(db.history().unwrap().is_empty());
+    }
+
+    #[test]
+    fn add_download_is_queued_and_listed_newest_first() {
+        let db = Db::open_in_memory().unwrap();
+        let a = db
+            .add_download(
+                &video("a"),
+                DownloadKind::Video,
+                Path::new("/d/a.mp4"),
+                at(1),
+            )
+            .unwrap();
+        let b = db
+            .add_download(
+                &video("b"),
+                DownloadKind::Audio,
+                Path::new("/d/b.opus"),
+                at(2),
+            )
+            .unwrap();
+        assert_ne!(a, b);
+
+        assert_eq!(
+            db.downloads().unwrap(),
+            [
+                Download {
+                    id: b,
+                    video: video("b"),
+                    kind: DownloadKind::Audio,
+                    path: "/d/b.opus".into(),
+                    status: DownloadStatus::Queued,
+                    created_at: at(2),
+                },
+                Download {
+                    id: a,
+                    video: video("a"),
+                    kind: DownloadKind::Video,
+                    path: "/d/a.mp4".into(),
+                    status: DownloadStatus::Queued,
+                    created_at: at(1),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn download_status_roundtrips() {
+        let db = Db::open_in_memory().unwrap();
+        let id = db
+            .add_download(
+                &video("a"),
+                DownloadKind::Video,
+                Path::new("/d/a.mp4"),
+                at(1),
+            )
+            .unwrap();
+        for status in [
+            DownloadStatus::Running,
+            DownloadStatus::Failed("network error".into()),
+            DownloadStatus::Cancelled,
+            DownloadStatus::Completed,
+        ] {
+            db.set_download_status(id, &status).unwrap();
+            assert_eq!(db.downloads().unwrap()[0].status, status);
+        }
+    }
+
+    #[test]
+    fn completed_download_only_returns_completed() {
+        let db = Db::open_in_memory().unwrap();
+        let id = db
+            .add_download(
+                &video("a"),
+                DownloadKind::Video,
+                Path::new("/d/a.mp4"),
+                at(1),
+            )
+            .unwrap();
+        assert_eq!(db.completed_download("a").unwrap(), None);
+
+        db.set_download_status(id, &DownloadStatus::Completed)
+            .unwrap();
+        assert_eq!(db.completed_download("a").unwrap().map(|d| d.id), Some(id));
+    }
+
+    #[test]
+    fn remove_download() {
+        let db = Db::open_in_memory().unwrap();
+        let id = db
+            .add_download(
+                &video("a"),
+                DownloadKind::Video,
+                Path::new("/d/a.mp4"),
+                at(1),
+            )
+            .unwrap();
+        db.remove_download(id).unwrap();
+        assert!(db.downloads().unwrap().is_empty());
+    }
+
+    #[test]
+    fn interrupted_downloads_are_requeued() {
+        let db = Db::open_in_memory().unwrap();
+        let running = db
+            .add_download(
+                &video("a"),
+                DownloadKind::Video,
+                Path::new("/d/a.mp4"),
+                at(1),
+            )
+            .unwrap();
+        let done = db
+            .add_download(
+                &video("b"),
+                DownloadKind::Video,
+                Path::new("/d/b.mp4"),
+                at(2),
+            )
+            .unwrap();
+        db.set_download_status(running, &DownloadStatus::Running)
+            .unwrap();
+        db.set_download_status(done, &DownloadStatus::Completed)
+            .unwrap();
+
+        db.requeue_interrupted_downloads().unwrap();
+
+        let statuses: Vec<_> = db
+            .downloads()
+            .unwrap()
+            .into_iter()
+            .map(|d| (d.id, d.status))
+            .collect();
+        assert_eq!(
+            statuses,
+            [
+                (done, DownloadStatus::Completed),
+                (running, DownloadStatus::Queued)
+            ]
+        );
     }
 }

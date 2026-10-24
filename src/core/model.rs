@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use chrono::{DateTime, Utc};
 
 /// A YouTube channel.
@@ -26,4 +28,30 @@ pub struct HistoryEntry {
     pub video: Video,
     pub watched_at: DateTime<Utc>,
     pub position_secs: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadKind {
+    Video,
+    Audio,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DownloadStatus {
+    Queued,
+    Running,
+    Completed,
+    Failed(String),
+    Cancelled,
+}
+
+/// A download as persisted in the database.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Download {
+    pub id: i64,
+    pub video: Video,
+    pub kind: DownloadKind,
+    pub path: PathBuf,
+    pub status: DownloadStatus,
+    pub created_at: DateTime<Utc>,
 }
