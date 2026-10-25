@@ -27,6 +27,12 @@ impl From<reqwest::Error> for BackendError {
     }
 }
 
+/// How long to wait for a connection to YouTube.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+/// How long a response may send nothing before the request fails (and a
+/// download range is retried). Slow but steady responses never time out.
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 pub struct RustyPipeBackend {
     client: RustyPipe,
     http: reqwest::Client,
@@ -38,7 +44,10 @@ impl RustyPipeBackend {
         let client = RustyPipe::builder().storage_dir(storage_dir).build()?;
         Ok(Self {
             client,
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .connect_timeout(CONNECT_TIMEOUT)
+                .read_timeout(READ_TIMEOUT)
+                .build()?,
         })
     }
 }
