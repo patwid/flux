@@ -213,6 +213,9 @@ mod thumbnail_imp {
         fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, baseline: i32) {
             let mut child = widget.first_child();
             while let Some(c) = child {
+                // GTK expects children to be measured before allocation,
+                // though the size comes from `width_request`, not the image.
+                c.measure(gtk::Orientation::Horizontal, height);
                 c.allocate(width, height, baseline, None);
                 child = c.next_sibling();
             }
