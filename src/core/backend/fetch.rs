@@ -41,8 +41,15 @@ impl Failure {
 
 impl From<reqwest::Error> for Failure {
     /// Timeouts and broken connections are worth retrying; a status is
-    /// retryable if [`download::retryable_status`] says so.
+    /// retryable if [`download::retryable_status`] says so. 403 and 410 mean
+    /// the URL was refused.
     fn from(e: reqwest::Error) -> Self {
+        if let Some(403 | 410) = e.status().map(|s| s.as_u16()) {
+            return Failure {
+                error: BackendError::UrlRefused(e.to_string()),
+                retryable: false,
+            };
+        }
         let retryable = match e.status() {
             Some(status) => download::retryable_status(status.as_u16()),
             // A body cut short is a decode error.
@@ -383,6 +390,16 @@ mod tests {
         assert_eq!(file, data());
         assert_eq!(reported, 25);
         assert_eq!(requests[0], (0, 9));
+    }
+
+    #[tokio::test]
+    async fn reports_refused_urls() {
+        for status in [403, 410] {
+            let (result, _, _, _) = run(vec![Reply::Status(status)], 5).await;
+            let error = result.unwrap_err();
+            assert!(matches!(error, BackendError::UrlRefused(_)), "{error:?}");
+            assert!(error.to_string().contains(&status.to_string()), "{error}");
+        }
     }
 
     #[tokio::test]

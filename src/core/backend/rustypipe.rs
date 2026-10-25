@@ -32,6 +32,8 @@ const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 /// How long a response may send nothing before the request fails (and a
 /// download range is retried). Slow but steady responses never time out.
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// How often a download fetches the stream URLs again when they are refused.
+const URL_REFRESHES: u32 = 3;
 
 pub struct RustyPipeBackend {
     client: RustyPipe,
@@ -208,6 +210,23 @@ impl Downloader for RustyPipeBackend {
         kind: DownloadKind,
         path: &std::path::Path,
         progress: ProgressFn,
+    ) -> Result<SavedDownload> {
+        // Each attempt resumes the parts of the previous ones.
+        super::with_fresh_urls(URL_REFRESHES, || {
+            self.download_once(video_id, kind, path, &progress)
+        })
+        .await
+    }
+}
+
+impl RustyPipeBackend {
+    /// Downloads a video with freshly fetched stream URLs.
+    async fn download_once(
+        &self,
+        video_id: &str,
+        kind: DownloadKind,
+        path: &std::path::Path,
+        progress: &ProgressFn,
     ) -> Result<SavedDownload> {
         let streams = self.streams(video_id).await?;
         let plan = download::plan(&streams, kind, DEFAULT_MAX_HEIGHT)

@@ -16,6 +16,10 @@ use super::subtitles::Cue;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BackendError {
+    /// A stream URL was refused (HTTP 403 or 410): it expired, or is not
+    /// valid for this client. Fresh URLs may work.
+    #[error("{0}")]
+    UrlRefused(String),
     #[error("{0}")]
     Other(String),
 }
@@ -84,6 +88,25 @@ pub fn saved_track(track: &SubtitleTrack, path: &std::path::Path) -> Result<Subt
         url: url.into(),
         ..track.clone()
     })
+}
+
+/// Runs `attempt` again, up to `refreshes` times, while it fails with
+/// [`BackendError::UrlRefused`]; each attempt is to fetch fresh URLs.
+pub async fn with_fresh_urls<T, F, Fut>(refreshes: u32, mut attempt: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let mut refreshed = 0;
+    loop {
+        match attempt().await {
+            Err(BackendError::UrlRefused(e)) if refreshed < refreshes => {
+                eprintln!("flux: stream URL refused, fetching it again: {e}");
+                refreshed += 1;
+            }
+            result => return result,
+        }
+    }
 }
 
 /// The result of refreshing the subscription feed.
@@ -171,6 +194,48 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn refused_urls_are_fetched_again() {
+        let mut calls = 0;
+        let result = with_fresh_urls(2, || {
+            calls += 1;
+            let n = calls;
+            async move {
+                if n < 3 {
+                    Err(BackendError::UrlRefused("403".into()))
+                } else {
+                    Ok(n)
+                }
+            }
+        })
+        .await;
+        assert_eq!(result.unwrap(), 3);
+    }
+
+    #[tokio::test]
+    async fn fresh_urls_are_fetched_a_limited_number_of_times() {
+        let mut calls = 0;
+        let result: Result<()> = with_fresh_urls(2, || {
+            calls += 1;
+            async { Err(BackendError::UrlRefused("403".into())) }
+        })
+        .await;
+        assert!(matches!(result, Err(BackendError::UrlRefused(_))));
+        assert_eq!(calls, 3);
+    }
+
+    #[tokio::test]
+    async fn other_errors_are_not_retried() {
+        let mut calls = 0;
+        let result: Result<()> = with_fresh_urls(2, || {
+            calls += 1;
+            async { Err(BackendError::Other("no stream".into())) }
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
     }
 
     #[tokio::test]
