@@ -27,7 +27,7 @@ pub fn with_chevron(row: adw::ActionRow) -> adw::ActionRow {
 }
 
 /// Size of the thumbnails in list rows, 16:9.
-const THUMBNAIL_SIZE: (i32, i32) = (128, 72);
+const THUMBNAIL_SIZE: (i32, i32) = (160, 90);
 
 /// A 16:9 thumbnail for list rows, loaded asynchronously.
 pub fn thumbnail(url: Option<&str>) -> gtk::Widget {
