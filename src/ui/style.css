@@ -8,6 +8,12 @@
   background-color: alpha(currentColor, 0.1);
 }
 
+/* Space above and below a row's large thumbnail, matching its side margins. */
+row.thumbnail-row > box.header {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
 .player-subtitle {
   background-color: rgba(0, 0, 0, 0.75);
   color: white;

@@ -47,8 +47,10 @@ pub fn playlist_row(playlist: &Playlist) -> adw::ActionRow {
 /// title. This relies on the row's child being its header, with the
 /// prefixes first.
 fn add_thumbnail(row: &adw::ActionRow, url: Option<&str>) {
-    let thumbnail = thumbnail(url);
+    // Stacked, the thumbnail shrinks to fit narrow rows.
+    let thumbnail = thumbnail(url, &ThumbnailLayout::shrinking(THUMBNAIL_WIDTH));
     row.add_prefix(&thumbnail);
+    row.add_css_class("thumbnail-row");
     if let Some(header) = row.child() {
         header.set_layout_manager(Some(ThumbnailRowLayout::default()));
         if let Some(prefixes) = header.first_child() {
@@ -68,8 +70,8 @@ pub fn with_chevron(row: adw::ActionRow) -> adw::ActionRow {
 /// Width of the thumbnails in list rows.
 const THUMBNAIL_WIDTH: i32 = 320;
 
-/// A 16:9 thumbnail for list rows, loaded asynchronously.
-pub fn thumbnail(url: Option<&str>) -> gtk::Widget {
+/// A 16:9 thumbnail for list rows, sized by `layout`, loaded asynchronously.
+pub fn thumbnail(url: Option<&str>, layout: &ThumbnailLayout) -> gtk::Widget {
     let picture = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::Cover)
         .can_shrink(true)
@@ -78,8 +80,7 @@ pub fn thumbnail(url: Option<&str>) -> gtk::Widget {
     // Sized by the layout rather than by the image, whose natural size is
     // taller than 16:9 for the feed's 4:3 thumbnails and for shorts.
     let thumbnail = gtk::Box::builder()
-        .layout_manager(&ThumbnailLayout::default())
-        .width_request(THUMBNAIL_WIDTH)
+        .layout_manager(layout)
         .valign(gtk::Align::Center)
         .css_classes(["thumbnail"])
         .overflow(gtk::Overflow::Hidden)
