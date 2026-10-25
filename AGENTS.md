@@ -113,6 +113,7 @@ src/
 - After a playback error (an expired stream URL, a network or decoder failure), the video is
   loaded again at its position with freshly fetched streams, and keeps playing if it was. Only
   repeated errors without progress in between show the error page.
+- While a video plays, the session is kept from idling and suspending (`gtk::Application::inhibit`).
 - Player controls hide during playback. A tap toggles them; a double tap, `f` or the button toggles
   fullscreen; `Esc` leaves fullscreen; `Space` plays or pauses.
 
