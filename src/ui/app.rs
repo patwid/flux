@@ -325,19 +325,15 @@ impl Component for App {
             }
             Msg::Toast(text) => self.toast(&text),
             Msg::DownloadCompleted(video) => {
-                let toast = adw::Toast::builder()
-                    .title(format!("Downloaded “{}”", video.title))
-                    .button_label("_Play")
-                    .build();
+                let toast = plain_toast(&format!("Downloaded “{}”", video.title));
+                toast.set_button_label(Some("_Play"));
                 let input = sender.input_sender().clone();
                 toast.connect_button_clicked(move |_| input.emit(Msg::OpenVideo(video.clone())));
                 self.show_toast(toast);
             }
             Msg::DownloadFailed(id, video) => {
-                let toast = adw::Toast::builder()
-                    .title(format!("Cannot download “{}”", video.title))
-                    .button_label("_Retry")
-                    .build();
+                let toast = plain_toast(&format!("Cannot download “{}”", video.title));
+                toast.set_button_label(Some("_Retry"));
                 let downloads = self.downloads.sender().clone();
                 toast.connect_button_clicked(move |_| {
                     downloads.emit(downloads::Input::Queue(download::Msg::Retry(id)));
@@ -444,9 +440,16 @@ fn shortcuts_dialog() -> adw::ShortcutsDialog {
     dialog
 }
 
+/// A toast showing `title` as plain text rather than markup.
+fn plain_toast(title: &str) -> adw::Toast {
+    let toast = adw::Toast::builder().use_markup(false).build();
+    toast.set_title(title);
+    toast
+}
+
 impl App {
     fn toast(&self, text: &str) {
-        self.show_toast(adw::Toast::new(text));
+        self.show_toast(plain_toast(text));
     }
 
     /// Whether the sections are shown rather than a pushed page.

@@ -10,26 +10,35 @@ use crate::core::model::{Channel, Playlist, Video};
 
 /// An activatable list row for a video.
 pub fn video_row(video: &Video) -> adw::ActionRow {
+    let row = plain_row(
+        &video.title,
+        &format::video_subtitle(video, chrono::Utc::now()),
+    );
+    row.set_title_lines(2);
+    add_thumbnail(&row, video.thumbnail_url.as_deref());
+    row
+}
+
+/// An activatable row showing `title` and `subtitle` as plain text.
+fn plain_row(title: &str, subtitle: &str) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
         .activatable(true)
         .use_markup(false)
-        .title_lines(2)
-        .title(&video.title)
-        .subtitle(format::video_subtitle(video, chrono::Utc::now()))
         .build();
-    add_thumbnail(&row, video.thumbnail_url.as_deref());
+    // Passed to the builder, the title and subtitle would be parsed as
+    // markup before `use-markup` is unset.
+    row.set_title(title);
+    row.set_subtitle(subtitle);
     row
 }
 
 /// An activatable list row for a playlist, opening its page.
 pub fn playlist_row(playlist: &Playlist) -> adw::ActionRow {
-    let row = adw::ActionRow::builder()
-        .activatable(true)
-        .use_markup(false)
-        .title_lines(2)
-        .title(&playlist.name)
-        .subtitle(playlist.video_count.map(format::videos).unwrap_or_default())
-        .build();
+    let row = plain_row(
+        &playlist.name,
+        &playlist.video_count.map(format::videos).unwrap_or_default(),
+    );
+    row.set_title_lines(2);
     add_thumbnail(&row, playlist.thumbnail_url.as_deref());
     with_chevron(row)
 }
@@ -88,12 +97,7 @@ pub fn avatar(channel: &Channel, size: i32) -> adw::Avatar {
 
 /// An activatable list row for a channel, opening its page.
 pub fn channel_row(channel: &Channel, subtitle: Option<&str>) -> adw::ActionRow {
-    let row = adw::ActionRow::builder()
-        .activatable(true)
-        .use_markup(false)
-        .title(&channel.name)
-        .subtitle(subtitle.unwrap_or_default())
-        .build();
+    let row = plain_row(&channel.name, subtitle.unwrap_or_default());
     row.add_prefix(&avatar(channel, 40));
     with_chevron(row)
 }
