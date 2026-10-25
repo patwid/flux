@@ -17,9 +17,10 @@ const STACK_TOP: i32 = 12;
 /// Space between the title and the buttons of a stacked row.
 const TEXT_SPACING: i32 = 6;
 
-/// Whether a row with content `width` wide stacks its thumbnail.
-pub fn stacks(width: i32) -> bool {
-    width < STACK_BELOW_WIDTH
+/// Whether a row with content `width` wide stacks its thumbnail; it also
+/// does when it is narrower than its side-by-side layout needs (`row_min`).
+pub fn stacks(width: i32, row_min: i32) -> bool {
+    width < STACK_BELOW_WIDTH.max(row_min)
 }
 
 /// The height of a 16:9 thumbnail `width` wide.
@@ -62,6 +63,17 @@ mod imp {
         fn row(&self) -> &gtk::BoxLayout {
             self.row
                 .get_or_init(|| gtk::BoxLayout::new(gtk::Orientation::Horizontal))
+        }
+
+        /// Whether `widget` stacks its thumbnail when `width` wide. The
+        /// side-by-side layout must not be measured or allocated narrower
+        /// than its minimum: GTK's box layout aborts.
+        fn stacks(&self, widget: &gtk::Widget, width: i32) -> bool {
+            let row_min = self
+                .row()
+                .measure(widget, gtk::Orientation::Horizontal, -1)
+                .0;
+            stacks(width, row_min)
         }
     }
 
@@ -110,19 +122,23 @@ mod imp {
             orientation: gtk::Orientation,
             for_size: i32,
         ) -> (i32, i32, i32, i32) {
-            let row = self.row().measure(widget, orientation, for_size);
             if orientation == gtk::Orientation::Horizontal {
-                // Narrow rows only need as much width as their widest part.
+                // Rows stack when narrow, so they only need as much width
+                // as the widest part of the stacked layout.
                 let (first, text) = children(widget);
                 let thumbnail = first.map_or(0, |c| c.measure(orientation, -1).0);
-                let text = text
-                    .iter()
-                    .map(|c| c.measure(orientation, -1).0)
-                    .sum::<i32>();
-                return (thumbnail.max(text), row.1, -1, -1);
+                let gaps = TEXT_SPACING * (text.len() as i32 - 1).max(0);
+                let text = gaps
+                    + text
+                        .iter()
+                        .map(|c| c.measure(orientation, -1).0)
+                        .sum::<i32>();
+                let natural = self.row().measure(widget, orientation, -1).1;
+                return (thumbnail.max(text), natural, -1, -1);
             }
-            if for_size < 0 || !stacks(for_size) {
-                return (row.0, row.1, -1, -1);
+            if for_size < 0 || !self.stacks(widget, for_size) {
+                let (min, nat, _, _) = self.row().measure(widget, orientation, for_size);
+                return (min, nat, -1, -1);
             }
             let (_, text) = children(widget);
             let height = STACK_TOP
@@ -133,7 +149,7 @@ mod imp {
         }
 
         fn allocate(&self, widget: &gtk::Widget, width: i32, height: i32, baseline: i32) {
-            if !stacks(width) {
+            if !self.stacks(widget, width) {
                 self.row().allocate(widget, width, height, baseline);
                 return;
             }
@@ -235,8 +251,47 @@ mod tests {
 
     #[test]
     fn narrow_rows_stack() {
-        assert!(stacks(320));
-        assert!(!stacks(600));
+        assert!(stacks(320, 200));
+        assert!(!stacks(600, 200));
+    }
+
+    #[test]
+    fn rows_too_narrow_for_side_by_side_stack() {
+        assert!(stacks(600, 700));
+    }
+
+    /// Needs a display: `xvfb-run cargo test -- --ignored rows_lay_out`.
+    #[test]
+    #[ignore]
+    fn rows_lay_out_at_any_width_they_accept() {
+        use relm4::adw;
+        use relm4::adw::prelude::*;
+
+        use crate::core::model::Video;
+        use crate::ui::widgets;
+
+        adw::init().unwrap();
+        let long = "Unbreakable".repeat(12);
+        let video = Video {
+            id: "v".into(),
+            title: format!("{long} {long}"),
+            channel_id: "UC1".into(),
+            channel_name: long.clone(),
+            published: None,
+            duration_secs: Some(65),
+            thumbnail_url: None,
+        };
+        let row = widgets::with_chevron(widgets::video_row(&video));
+        for _ in 0..3 {
+            row.add_suffix(&gtk::Button::from_icon_name("user-trash-symbolic"));
+        }
+        let window = gtk::Window::builder().child(&row).build();
+        window.present();
+        let (min, nat, _, _) = row.measure(gtk::Orientation::Horizontal, -1);
+        for width in min..=nat.max(min + 1000) {
+            let (height, _, _, _) = row.measure(gtk::Orientation::Vertical, width);
+            row.allocate(width, height, -1, None);
+        }
     }
 
     #[test]
