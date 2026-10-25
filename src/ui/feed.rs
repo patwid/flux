@@ -266,6 +266,9 @@ impl Component for FeedPage {
         sender: ComponentSender<Self>,
         root: &Self::Root,
     ) {
+        for (id, e) in &refresh.errors {
+            glib::g_warning!("flux", "cannot refresh the feed of {id}: {e}");
+        }
         self.update(Input::State(Msg::Refreshed(refresh)), sender, root);
     }
 }
