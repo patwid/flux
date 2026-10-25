@@ -57,7 +57,21 @@ pub struct State {
     resume_at: u32,
     /// Last position written to the history.
     saved_position: Option<u32>,
+    /// Whether the video is streamed rather than played from a download.
+    streamed: bool,
+    /// Recoveries from playback errors since playback last got past one.
+    recoveries: u32,
+    /// Position (seconds) of the last playback error.
+    failed_at: Option<u32>,
+    /// Whether to play once the video is loaded again after an error.
+    resume_playing: bool,
 }
+
+/// Playback errors recovered from in a row before giving up.
+const MAX_RECOVERIES: u32 = 2;
+
+/// Seconds playback must get past an error before errors count anew.
+const RECOVERED_AFTER_SECS: u32 = 10;
 
 /// Everything known about a video when its page is opened.
 #[derive(Debug, Clone)]
@@ -82,6 +96,12 @@ pub enum Msg {
     /// Loads the details again after they failed to load.
     RetryDetails,
     Streams(Result<Streams, String>),
+    /// The player failed at this position (seconds), while playing or not.
+    PlaybackFailed {
+        error: String,
+        position: u32,
+        playing: bool,
+    },
     /// Playback reached this position (seconds).
     Progress(u32),
     /// The page is being closed at this position (seconds).
@@ -122,10 +142,14 @@ pub enum Effect {
     /// Shows these cues in the player; none turns subtitles off.
     ShowSubtitles(Vec<Cue>),
     SubtitlesFailed(String),
+    /// Loads `source` at `start_at` seconds, and plays it if `play`.
     Play {
         source: PlaybackSource,
         start_at: u32,
+        play: bool,
     },
+    /// Shows that the video cannot be played.
+    PlaybackFailed(String),
     RecordWatch {
         video: Video,
         position: u32,
@@ -173,6 +197,10 @@ impl State {
             },
             resume_at,
             saved_position: None,
+            streamed: true,
+            recoveries: 0,
+            failed_at: None,
+            resume_playing: false,
         };
         let mut effects = vec![Effect::LoadDetails(state.video.id.clone())];
         let local_uri = init
@@ -180,6 +208,7 @@ impl State {
             .and_then(|path| url::Url::from_file_path(path).ok());
         match local_uri {
             Some(uri) => {
+                state.streamed = false;
                 effects.extend(state.play(PlaybackSource::Uri(uri.into())));
                 effects.extend(state.offer_subtitles(init.local_subtitles));
             }
@@ -209,13 +238,28 @@ impl State {
             Msg::Streams(Ok(streams)) => match streams::choose_source(&streams, MAX_HEIGHT) {
                 Some(source) => {
                     let mut effects = self.play(source);
-                    effects.extend(self.offer_subtitles(streams.subtitles));
+                    // Streams fetched again after an error offer the same tracks.
+                    if self.subtitles.tracks.is_empty() {
+                        effects.extend(self.offer_subtitles(streams.subtitles));
+                    }
                     return effects;
                 }
                 None => self.playback = Load::Failed("No playable stream found".into()),
             },
             Msg::Streams(Err(e)) => self.playback = Load::Failed(e),
+            Msg::PlaybackFailed {
+                error,
+                position,
+                playing,
+            } => return self.recover(error, position, playing),
             Msg::Progress(position) => {
+                if self
+                    .failed_at
+                    .is_some_and(|at| position >= at + RECOVERED_AFTER_SECS)
+                {
+                    self.recoveries = 0;
+                    self.failed_at = None;
+                }
                 if self
                     .saved_position
                     .is_some_and(|saved| position.abs_diff(saved) >= SAVE_INTERVAL_SECS)
@@ -344,12 +388,34 @@ impl State {
             .collect()
     }
 
+    /// Loads the video again at `position` after a playback error, playing
+    /// it if it was `playing`. Streams are fetched again, as their URLs may
+    /// have expired. Gives up after [`MAX_RECOVERIES`] errors in a row.
+    fn recover(&mut self, error: String, position: u32, playing: bool) -> Vec<Effect> {
+        if self.recoveries >= MAX_RECOVERIES {
+            self.playback = Load::Failed(error.clone());
+            return vec![Effect::PlaybackFailed(error)];
+        }
+        self.recoveries += 1;
+        self.failed_at = Some(position);
+        self.resume_at = position;
+        self.resume_playing = playing;
+        if !self.streamed
+            && let Load::Loaded(source) = &self.playback
+        {
+            return self.play(source.clone());
+        }
+        self.playback = Load::Loading;
+        vec![Effect::LoadStreams(self.video.id.clone())]
+    }
+
     fn play(&mut self, source: PlaybackSource) -> Vec<Effect> {
         self.playback = Load::Loaded(source.clone());
         vec![
             Effect::Play {
                 source,
                 start_at: self.resume_at,
+                play: std::mem::take(&mut self.resume_playing),
             },
             self.record(self.resume_at),
         ]
@@ -588,6 +654,15 @@ impl Component for VideoPage {
                 .launch(())
                 .forward(sender.input_sender(), |out| match out {
                     player_view::Output::Progress(p) => PageMsg::State(Msg::Progress(p)),
+                    player_view::Output::Failed {
+                        error,
+                        position,
+                        playing,
+                    } => PageMsg::State(Msg::PlaybackFailed {
+                        error,
+                        position,
+                        playing,
+                    }),
                     player_view::Output::ToggleFullscreen => PageMsg::ToggleFullscreen,
                     player_view::Output::SelectSubtitles(index) => {
                         PageMsg::State(Msg::SelectSubtitles(index))
@@ -778,10 +853,18 @@ impl VideoPage {
                 Effect::SubtitlesFailed(e) => {
                     self.player.emit(player_view::Msg::SubtitlesFailed(e));
                 }
-                Effect::Play { source, start_at } => {
-                    self.player
-                        .emit(player_view::Msg::Load { source, start_at });
+                Effect::Play {
+                    source,
+                    start_at,
+                    play,
+                } => {
+                    self.player.emit(player_view::Msg::Load {
+                        source,
+                        start_at,
+                        play,
+                    });
                 }
+                Effect::PlaybackFailed(e) => self.player.emit(player_view::Msg::Fail(e)),
                 Effect::RecordWatch { video, position } => {
                     log_db_error(self.services.db.record_watch(
                         &video,
@@ -1058,7 +1141,8 @@ mod tests {
                 Effect::LoadDetails("v".into()),
                 Effect::Play {
                     source: source.clone(),
-                    start_at: 60
+                    start_at: 60,
+                    play: false,
                 },
                 Effect::RecordWatch {
                     video: video("v"),
@@ -1106,7 +1190,8 @@ mod tests {
             [
                 Effect::Play {
                     source: source.clone(),
-                    start_at: 42
+                    start_at: 42,
+                    play: false,
                 },
                 Effect::RecordWatch {
                     video: video("v"),
@@ -1115,6 +1200,95 @@ mod tests {
             ]
         );
         assert_eq!(state.playback, Load::Loaded(source));
+    }
+
+    fn failed(position: u32, playing: bool) -> Msg {
+        Msg::PlaybackFailed {
+            error: "decoding failed".into(),
+            position,
+            playing,
+        }
+    }
+
+    #[test]
+    fn playback_errors_reload_fresh_streams_at_the_position() {
+        let (mut state, _) = State::new(init());
+        let streams = Streams {
+            subtitles: vec![track("en")],
+            ..muxed()
+        };
+        state.update(Msg::Streams(Ok(streams.clone())));
+
+        assert_eq!(
+            state.update(failed(300, true)),
+            [Effect::LoadStreams("v".into())]
+        );
+        assert_eq!(state.playback, Load::Loading);
+        // The subtitle tracks are offered already.
+        assert_eq!(
+            state.update(Msg::Streams(Ok(streams))),
+            [
+                Effect::Play {
+                    source: PlaybackSource::Uri("https://muxed".into()),
+                    start_at: 300,
+                    play: true,
+                },
+                Effect::RecordWatch {
+                    video: video("v"),
+                    position: 300
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn downloaded_video_reloads_the_file_after_an_error() {
+        let (mut state, _) = State::new(Init {
+            local_file: Some("/videos/v.mp4".into()),
+            ..init()
+        });
+        let effects = state.update(failed(60, false));
+        assert_eq!(
+            effects[0],
+            Effect::Play {
+                source: PlaybackSource::Uri("file:///videos/v.mp4".into()),
+                start_at: 60,
+                play: false,
+            }
+        );
+    }
+
+    #[test]
+    fn repeated_playback_errors_fail() {
+        let (mut state, _) = State::new(init());
+        state.update(Msg::Streams(Ok(muxed())));
+        for _ in 0..MAX_RECOVERIES {
+            assert_eq!(
+                state.update(failed(100, true))[0],
+                Effect::LoadStreams("v".into())
+            );
+            state.update(Msg::Streams(Ok(muxed())));
+            state.update(Msg::Progress(105));
+        }
+        assert_eq!(
+            state.update(failed(106, true)),
+            [Effect::PlaybackFailed("decoding failed".into())]
+        );
+        assert_eq!(state.playback, Load::Failed("decoding failed".into()));
+    }
+
+    #[test]
+    fn playing_on_past_an_error_allows_new_recoveries() {
+        let (mut state, _) = State::new(init());
+        state.update(Msg::Streams(Ok(muxed())));
+        for position in [100, 200, 300] {
+            assert_eq!(
+                state.update(failed(position, true))[0],
+                Effect::LoadStreams("v".into())
+            );
+            state.update(Msg::Streams(Ok(muxed())));
+            state.update(Msg::Progress(position + RECOVERED_AFTER_SECS));
+        }
     }
 
     #[test]

@@ -85,6 +85,8 @@ pub struct PlayerView {
     duration: Option<Duration>,
     /// Seek to perform once the pipeline has prerolled.
     pending_seek: Option<Duration>,
+    /// Whether to play once the pipeline is ready.
+    play_when_ready: bool,
     status: Status,
     controls: Controls,
     fullscreen: bool,
@@ -118,9 +120,11 @@ enum Status {
 
 #[derive(Debug)]
 pub enum Msg {
+    /// Loads `source` at `start_at` seconds, and plays it if `play`.
     Load {
         source: PlaybackSource,
         start_at: u32,
+        play: bool,
     },
     /// Shows an error instead of the video.
     Fail(String),
@@ -155,6 +159,13 @@ pub enum Msg {
 pub enum Output {
     /// Current playback position in seconds.
     Progress(u32),
+    /// Playback failed at `position` (seconds), while `playing` or not.
+    /// The video is to be loaded again, or [`Msg::Fail`] sent.
+    Failed {
+        error: String,
+        position: u32,
+        playing: bool,
+    },
     ToggleFullscreen,
     /// The user chose the subtitle track with this index, or none.
     SelectSubtitles(Option<usize>),
@@ -342,6 +353,7 @@ impl Component for PlayerView {
             position: Duration::ZERO,
             duration: None,
             pending_seek: None,
+            play_when_ready: false,
             status: Status::Loading,
             controls: Controls::default(),
             fullscreen: false,
@@ -398,9 +410,14 @@ impl Component for PlayerView {
 
     fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, _root: &Self::Root) {
         match msg {
-            Msg::Load { source, start_at } => {
+            Msg::Load {
+                source,
+                start_at,
+                play,
+            } => {
                 self.status = Status::Loading;
                 self.playing = false;
+                self.play_when_ready = play;
                 self.position = Duration::from_secs(start_at.into());
                 self.duration = None;
                 self.pending_seek = (start_at > 0).then_some(self.position);
@@ -409,8 +426,26 @@ impl Component for PlayerView {
                 }
             }
             // Keep the first error: later ones are usually consequences of it.
-            Msg::Error(_) if matches!(self.status, Status::Failed(_)) => {}
-            Msg::Fail(e) | Msg::Error(e) => {
+            Msg::Error(_) if self.engine.is_none() || matches!(self.status, Status::Failed(_)) => {}
+            Msg::Error(error) => {
+                let position = match self.status {
+                    Status::Ready => self.engine.as_ref().and_then(Engine::position),
+                    _ => None,
+                }
+                .unwrap_or(self.position);
+                let playing = self.playing;
+                // Drop the pipeline; the page loads the video again or fails.
+                self.engine = None;
+                self._bus_watch = None;
+                self.status = Status::Loading;
+                self.playing = false;
+                let _ = sender.output(Output::Failed {
+                    error,
+                    position: position.as_secs() as u32,
+                    playing,
+                });
+            }
+            Msg::Fail(e) => {
                 self.status = Status::Failed(e);
                 self.playing = false;
                 if let Some(engine) = &self.engine {
@@ -429,8 +464,14 @@ impl Component for PlayerView {
                     Some(position) => {
                         let _ = engine.seek(position);
                     }
-                    // Videos never start by themselves; the user presses play.
-                    None => self.status = Status::Ready,
+                    // Videos never start by themselves: the user pressed play
+                    // before, if at all.
+                    None => {
+                        self.status = Status::Ready;
+                        if std::mem::take(&mut self.play_when_ready) {
+                            self.set_playing(true);
+                        }
+                    }
                 }
             }
             Msg::TogglePlay => self.set_playing(!self.playing),
