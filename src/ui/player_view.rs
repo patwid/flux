@@ -61,6 +61,35 @@ impl Controls {
     }
 }
 
+/// Keeps the session from idling (blanking the screen) or suspending while
+/// a video plays: the hardware decoder fails when the device suspends.
+#[derive(Debug, Default)]
+pub struct Inhibitor {
+    /// The cookie of the inhibition held.
+    cookie: Option<u32>,
+}
+
+impl Inhibitor {
+    /// Inhibits while `playing`, and releases the inhibition otherwise.
+    /// `inhibit` returns a cookie, or 0 if it failed (as GTK does);
+    /// `uninhibit` releases a cookie.
+    pub fn update(
+        &mut self,
+        playing: bool,
+        inhibit: impl FnOnce() -> u32,
+        uninhibit: impl FnOnce(u32),
+    ) {
+        match (playing, self.cookie) {
+            (true, None) => self.cookie = Some(inhibit()).filter(|&cookie| cookie != 0),
+            (false, Some(cookie)) => {
+                uninhibit(cookie);
+                self.cookie = None;
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The `player.subtitles` action target of a subtitle track, or of none.
 fn subtitle_target(track: Option<usize>) -> String {
     track.map(|index| index.to_string()).unwrap_or_default()
@@ -87,6 +116,7 @@ pub struct PlayerView {
     pending_seek: Option<Duration>,
     /// Whether to play once the pipeline is ready.
     play_when_ready: bool,
+    inhibitor: Inhibitor,
     status: Status,
     controls: Controls,
     fullscreen: bool,
@@ -354,6 +384,7 @@ impl Component for PlayerView {
             duration: None,
             pending_seek: None,
             play_when_ready: false,
+            inhibitor: Inhibitor::default(),
             status: Status::Loading,
             controls: Controls::default(),
             fullscreen: false,
@@ -408,7 +439,7 @@ impl Component for PlayerView {
         ComponentParts { model, widgets }
     }
 
-    fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, _root: &Self::Root) {
+    fn update(&mut self, msg: Msg, sender: ComponentSender<Self>, root: &Self::Root) {
         match msg {
             Msg::Load {
                 source,
@@ -544,6 +575,26 @@ impl Component for PlayerView {
             }
         }
         self.cue_layout.set_bottom_inset(self.subtitle_margin());
+        let window = root.root().and_downcast::<gtk::Window>();
+        self.inhibitor.update(
+            self.playing,
+            || {
+                relm4::main_application().inhibit(
+                    window.as_ref(),
+                    gtk::ApplicationInhibitFlags::IDLE | gtk::ApplicationInhibitFlags::SUSPEND,
+                    Some("Playing a video"),
+                )
+            },
+            |cookie| relm4::main_application().uninhibit(cookie),
+        );
+    }
+
+    fn shutdown(&mut self, _widgets: &mut Self::Widgets, _output: relm4::Sender<Output>) {
+        self.inhibitor.update(
+            false,
+            || 0,
+            |cookie| relm4::main_application().uninhibit(cookie),
+        );
     }
 }
 
@@ -716,6 +767,38 @@ mod tests {
         for _ in 0..n {
             controls.tick(playing);
         }
+    }
+
+    /// Runs [`Inhibitor::update`], returning the calls made.
+    fn inhibit(inhibitor: &mut Inhibitor, playing: bool, cookie: u32) -> Vec<String> {
+        let calls = std::cell::RefCell::new(Vec::new());
+        inhibitor.update(
+            playing,
+            || {
+                calls.borrow_mut().push("inhibit".to_string());
+                cookie
+            },
+            |c| calls.borrow_mut().push(format!("uninhibit {c}")),
+        );
+        calls.into_inner()
+    }
+
+    #[test]
+    fn inhibits_idle_once_while_playing() {
+        let mut inhibitor = Inhibitor::default();
+        assert!(inhibit(&mut inhibitor, false, 7).is_empty());
+        assert_eq!(inhibit(&mut inhibitor, true, 7), ["inhibit"]);
+        assert!(inhibit(&mut inhibitor, true, 8).is_empty());
+        assert_eq!(inhibit(&mut inhibitor, false, 8), ["uninhibit 7"]);
+        assert!(inhibit(&mut inhibitor, false, 8).is_empty());
+    }
+
+    #[test]
+    fn inhibiting_again_after_a_failure() {
+        let mut inhibitor = Inhibitor::default();
+        assert_eq!(inhibit(&mut inhibitor, true, 0), ["inhibit"]);
+        assert_eq!(inhibit(&mut inhibitor, true, 3), ["inhibit"]);
+        assert_eq!(inhibit(&mut inhibitor, false, 0), ["uninhibit 3"]);
     }
 
     #[test]
