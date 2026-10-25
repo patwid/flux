@@ -1,5 +1,5 @@
-//! Layout managers for video rows: on narrow rows the thumbnail spans the
-//! row's width, above the title and the row's buttons.
+//! Layout managers for rows with a thumbnail (videos, playlists): on narrow
+//! rows the thumbnail spans the row's width, above the title and buttons.
 
 use relm4::gtk;
 use relm4::gtk::glib;
@@ -45,21 +45,21 @@ mod imp {
     /// Lays out an `AdwActionRow`'s header: its first child (the prefixes)
     /// in a row with the others, or, when narrow, above them.
     #[derive(Default)]
-    pub struct VideoRowLayout {
+    pub struct ThumbnailRowLayout {
         /// The header's own layout, used when the row is wide.
         row: OnceCell<gtk::BoxLayout>,
     }
 
     #[glib::object_subclass]
-    impl ObjectSubclass for VideoRowLayout {
-        const NAME: &'static str = "FluxVideoRowLayout";
-        type Type = super::VideoRowLayout;
+    impl ObjectSubclass for ThumbnailRowLayout {
+        const NAME: &'static str = "FluxThumbnailRowLayout";
+        type Type = super::ThumbnailRowLayout;
         type ParentType = gtk::LayoutManager;
     }
 
-    impl ObjectImpl for VideoRowLayout {}
+    impl ObjectImpl for ThumbnailRowLayout {}
 
-    impl VideoRowLayout {
+    impl ThumbnailRowLayout {
         fn row(&self) -> &gtk::BoxLayout {
             self.row
                 .get_or_init(|| gtk::BoxLayout::new(gtk::Orientation::Horizontal))
@@ -111,7 +111,7 @@ mod imp {
             .unwrap_or(0)
     }
 
-    impl LayoutManagerImpl for VideoRowLayout {
+    impl LayoutManagerImpl for ThumbnailRowLayout {
         fn request_mode(&self, _widget: &gtk::Widget) -> gtk::SizeRequestMode {
             gtk::SizeRequestMode::HeightForWidth
         }
@@ -235,11 +235,11 @@ impl Default for ThumbnailLayout {
 glib::wrapper! {
     /// Lays out an `AdwActionRow`'s header (prefixes, title, suffixes) in a
     /// row, or with the prefixes stacked above the rest on narrow rows.
-    pub struct VideoRowLayout(ObjectSubclass<imp::VideoRowLayout>)
+    pub struct ThumbnailRowLayout(ObjectSubclass<imp::ThumbnailRowLayout>)
         @extends gtk::LayoutManager;
 }
 
-impl Default for VideoRowLayout {
+impl Default for ThumbnailRowLayout {
     fn default() -> Self {
         glib::Object::new()
     }
@@ -267,7 +267,7 @@ mod tests {
         use relm4::adw;
         use relm4::adw::prelude::*;
 
-        use crate::core::model::Video;
+        use crate::core::model::{Playlist, Video};
         use crate::ui::widgets;
 
         adw::init().unwrap();
@@ -281,16 +281,24 @@ mod tests {
             duration_secs: Some(65),
             thumbnail_url: None,
         };
-        let row = widgets::with_chevron(widgets::video_row(&video));
+        let playlist = Playlist {
+            id: "p".into(),
+            name: format!("{long} {long}"),
+            thumbnail_url: None,
+            video_count: Some(12),
+        };
+        let video_row = widgets::with_chevron(widgets::video_row(&video));
         for _ in 0..3 {
-            row.add_suffix(&gtk::Button::from_icon_name("user-trash-symbolic"));
+            video_row.add_suffix(&gtk::Button::from_icon_name("user-trash-symbolic"));
         }
-        let window = gtk::Window::builder().child(&row).build();
-        window.present();
-        let (min, nat, _, _) = row.measure(gtk::Orientation::Horizontal, -1);
-        for width in min..=nat.max(min + 1000) {
-            let (height, _, _, _) = row.measure(gtk::Orientation::Vertical, width);
-            row.allocate(width, height, -1, None);
+        for row in [video_row, widgets::playlist_row(&playlist)] {
+            let window = gtk::Window::builder().child(&row).build();
+            window.present();
+            let (min, nat, _, _) = row.measure(gtk::Orientation::Horizontal, -1);
+            for width in min..=nat.max(min + 1000) {
+                let (height, _, _, _) = row.measure(gtk::Orientation::Vertical, width);
+                row.allocate(width, height, -1, None);
+            }
         }
     }
 

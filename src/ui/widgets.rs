@@ -4,7 +4,7 @@ use relm4::adw::prelude::*;
 use relm4::gtk::gio;
 use relm4::{adw, gtk};
 
-use super::video_row_layout::{ThumbnailLayout, VideoRowLayout};
+use super::thumbnail_row_layout::{ThumbnailLayout, ThumbnailRowLayout};
 use super::{format, images};
 use crate::core::model::{Channel, Playlist, Video};
 
@@ -17,18 +17,7 @@ pub fn video_row(video: &Video) -> adw::ActionRow {
         .title(&video.title)
         .subtitle(format::video_subtitle(video, chrono::Utc::now()))
         .build();
-    let thumbnail = thumbnail(video.thumbnail_url.as_deref());
-    row.add_prefix(&thumbnail);
-    // On narrow rows, the thumbnail spans the row above the title. This
-    // relies on the row's child being its header, with the prefixes first.
-    if let Some(header) = row.child() {
-        header.set_layout_manager(Some(VideoRowLayout::default()));
-        if let Some(prefixes) = header.first_child() {
-            // The thumbnail fills the prefixes, which only grow when stacked.
-            prefixes.set_hexpand(false);
-            thumbnail.set_hexpand(true);
-        }
-    }
+    add_thumbnail(&row, video.thumbnail_url.as_deref());
     row
 }
 
@@ -41,8 +30,24 @@ pub fn playlist_row(playlist: &Playlist) -> adw::ActionRow {
         .title(&playlist.name)
         .subtitle(playlist.video_count.map(format::videos).unwrap_or_default())
         .build();
-    row.add_prefix(&thumbnail(playlist.thumbnail_url.as_deref()));
+    add_thumbnail(&row, playlist.thumbnail_url.as_deref());
     with_chevron(row)
+}
+
+/// Adds a thumbnail to `row`, which on narrow rows spans the row above the
+/// title. This relies on the row's child being its header, with the
+/// prefixes first.
+fn add_thumbnail(row: &adw::ActionRow, url: Option<&str>) {
+    let thumbnail = thumbnail(url);
+    row.add_prefix(&thumbnail);
+    if let Some(header) = row.child() {
+        header.set_layout_manager(Some(ThumbnailRowLayout::default()));
+        if let Some(prefixes) = header.first_child() {
+            // The thumbnail fills the prefixes, which only grow when stacked.
+            prefixes.set_hexpand(false);
+            thumbnail.set_hexpand(true);
+        }
+    }
 }
 
 /// Adds a chevron to a row that opens a page.

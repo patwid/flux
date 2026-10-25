@@ -14,8 +14,8 @@ pub mod playlists;
 pub mod replies;
 pub mod search;
 pub mod subscriptions;
+pub mod thumbnail_row_layout;
 pub mod video;
-pub mod video_row_layout;
 pub mod widgets;
 
 use std::path::PathBuf;
