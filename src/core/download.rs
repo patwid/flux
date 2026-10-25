@@ -107,6 +107,12 @@ pub fn retryable_status(status: u16) -> bool {
     matches!(status, 408 | 429 | 500..=599)
 }
 
+/// The total size in a `Content-Range` header such as `bytes 10-19/100`.
+pub fn content_range_total(header: &str) -> Option<u64> {
+    let (_, total) = header.strip_prefix("bytes ")?.split_once('/')?;
+    total.parse().ok()
+}
+
 /// The first byte of a `Content-Range` header such as `bytes 10-19/100`.
 pub fn content_range_start(header: &str) -> Option<u64> {
     let (start, _) = header.strip_prefix("bytes ")?.split_once('-')?;
@@ -774,6 +780,14 @@ mod tests {
         assert_eq!(content_range_start("bytes 0-0/*"), Some(0));
         assert_eq!(content_range_start("bytes */100"), None);
         assert_eq!(content_range_start("10-19/100"), None);
+    }
+
+    #[test]
+    fn parses_content_range_total() {
+        assert_eq!(content_range_total("bytes 10-19/100"), Some(100));
+        assert_eq!(content_range_total("bytes */100"), Some(100));
+        assert_eq!(content_range_total("bytes 0-0/*"), None);
+        assert_eq!(content_range_total("10-19/100"), None);
     }
 
     #[test]

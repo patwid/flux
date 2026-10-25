@@ -178,6 +178,14 @@ impl Backend for RustyPipeBackend {
 
 impl RustyPipeBackend {
     /// Downloads `url` (of `size` bytes) to `path`.
+    /// `size` if known, else the size the server reports for `url`.
+    async fn known_size(&self, url: &str, size: Option<u64>) -> Result<u64> {
+        match size {
+            Some(size) => Ok(size),
+            None => fetch::size(&self.http, url).await,
+        }
+    }
+
     async fn fetch(
         &self,
         url: &str,
@@ -239,10 +247,14 @@ impl RustyPipeBackend {
         progress: &ProgressFn,
     ) -> Result<SavedDownload> {
         let streams = self.streams(video_id).await?;
-        let plan = download::plan(&streams, kind, DEFAULT_MAX_HEIGHT)
+        let mut plan = download::plan(&streams, kind, DEFAULT_MAX_HEIGHT)
             .ok_or_else(|| BackendError::Other("no downloadable stream".into()))?;
+        if let Some(video) = &mut plan.video {
+            video.size = Some(self.known_size(&video.url, video.size).await?);
+        }
+        plan.audio.size = Some(self.known_size(&plan.audio.url, plan.audio.size).await?);
         let output = path.with_extension(plan.extension);
-        // The sizes are known: `total` below fails otherwise.
+        // The sizes are known (filled in above).
         let part =
             |name, size: Option<u64>| download::part_path(&output, name, size.unwrap_or_default());
 

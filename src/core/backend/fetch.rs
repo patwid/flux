@@ -159,6 +159,24 @@ async fn fetch_range(
     Ok(())
 }
 
+/// The size of the stream at `url`, from the `Content-Range` of a request
+/// for its first byte.
+pub async fn size(http: &reqwest::Client, url: &str) -> Result<u64> {
+    let response = http
+        .get(url)
+        .header("Range", "bytes=0-0")
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status)
+        .map_err(|e| Failure::from(e).error)?;
+    response
+        .headers()
+        .get(reqwest::header::CONTENT_RANGE)
+        .and_then(|h| h.to_str().ok())
+        .and_then(download::content_range_total)
+        .ok_or_else(|| BackendError::Other("unknown stream size".into()))
+}
+
 /// Whether `url` (of `size` bytes) serves the middle of the stream, as some
 /// clients' URLs only serve its start, or none of it. Only a refusal (see
 /// [`BackendError::UrlRefused`]) counts: other failures may be passing.
@@ -425,6 +443,20 @@ mod tests {
         let served = serves(&client(), &url, data().len() as u64).await;
         let requests = requests.lock().unwrap().clone();
         (served, requests)
+    }
+
+    #[tokio::test]
+    async fn finds_the_size_of_a_stream() {
+        let (url, requests) = serve(data(), vec![]).await;
+        assert_eq!(size(&client(), &url).await.unwrap(), 25);
+        assert_eq!(*requests.lock().unwrap(), [(0, 0)]);
+
+        let (url, _) = serve(data(), vec![Reply::Status(403)]).await;
+        let error = size(&client(), &url).await.unwrap_err();
+        assert!(matches!(error, BackendError::UrlRefused(_)), "{error:?}");
+
+        let (url, _) = serve(data(), vec![Reply::Whole]).await;
+        assert!(size(&client(), &url).await.is_err());
     }
 
     #[tokio::test]
