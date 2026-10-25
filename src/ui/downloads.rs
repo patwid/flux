@@ -114,7 +114,7 @@ impl Component for DownloadsPage {
         let model = DownloadsPage {
             queue: Queue::new(MAX_PARALLEL),
             services,
-            list: widgets::boxed_list(),
+            list: widgets::card_list(),
             tasks: HashMap::new(),
             rows: HashMap::new(),
             saved_subtitles: HashMap::new(),

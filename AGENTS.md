@@ -75,7 +75,7 @@ src/
     comments.rs        # paged comment list state and widget (video and replies pages)
     player_view.rs     # video widget and controls
     cue_layout.rs      # places subtitles in the video by their cue settings
-    thumbnail_row_layout.rs # video and playlist rows: thumbnail beside the title, or above it when narrow
+    thumbnail_row_layout.rs # video rows: thumbnail beside the title, or above it when narrow
     format.rs widgets.rs images.rs aspect.rs style.css           # shared helpers
 ```
 
@@ -104,10 +104,12 @@ src/
 - An `AdwBreakpoint` (max-width 550sp) switches the layout, rather than size-allocation hacks. Only one
   breakpoint applies at a time, so the narrow one repeats the 800sp one's setters.
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
-- Video rows (search, feed, history, downloads, channels, playlists, related videos) and
-  playlist rows (channels, library) show a 320px wide thumbnail beside the title. Rows narrower
-  than 600px stack a full-width thumbnail above the title instead, decided by each row's own
-  width rather than by a window breakpoint.
+- Video rows (search, feed, downloads, channels, playlists, related videos) show a 320px wide
+  thumbnail beside the title. Rows narrower than 600px stack a full-width thumbnail above the
+  title instead, decided by each row's own width rather than by a window breakpoint. History rows
+  and playlist rows (channels, library) keep a 160px thumbnail beside the title at every width.
+- Lists of video and playlist rows show each row as a separate card; the subscriptions list joins
+  its rows.
 - Video page: when the page is under 700sp wide, or fullscreen, the player is fixed above the scrolled details.
   On wider pages, the player scrolls with the details inside a clamp. An `AdwMultiLayoutView` with the
   layouts `narrow`, `wide` and `fullscreen` places the player. Below the description, an

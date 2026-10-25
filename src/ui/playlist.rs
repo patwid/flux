@@ -200,7 +200,7 @@ impl Component for PlaylistPage {
         let model = PlaylistPage {
             state,
             services,
-            list: widgets::boxed_list(),
+            list: widgets::card_list(),
         };
         let list = &model.list;
         let widgets = view_output!();

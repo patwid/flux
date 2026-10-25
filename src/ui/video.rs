@@ -736,7 +736,7 @@ impl Component for VideoPage {
             state,
             services,
             player,
-            related: adw::PreferencesGroup::new(),
+            related: adw::PreferencesGroup::builder().separate_rows(true).build(),
             related_rows: Vec::new(),
             comment_list: CommentList::new(
                 comments.clone(),

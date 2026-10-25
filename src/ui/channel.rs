@@ -336,8 +336,8 @@ impl Component for ChannelPage {
         let model = ChannelPage {
             state,
             services,
-            list: widgets::boxed_list(),
-            playlist_list: widgets::boxed_list(),
+            list: widgets::card_list(),
+            playlist_list: widgets::card_list(),
             avatar: adw::Avatar::default(),
         };
         images::set_avatar(&model.avatar, model.state.channel.avatar_url.as_deref());

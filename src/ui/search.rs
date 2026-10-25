@@ -196,7 +196,7 @@ impl Component for SearchPage {
         let model = SearchPage {
             state: State::default(),
             backend,
-            results: widgets::boxed_list(),
+            results: widgets::card_list(),
             entry: gtk::SearchEntry::new(),
         };
         let results = &model.results;

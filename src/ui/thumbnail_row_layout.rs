@@ -1,4 +1,4 @@
-//! Layout managers for rows with a thumbnail (videos, playlists): on narrow
+//! Layout managers for video rows with a thumbnail: on narrow
 //! rows the thumbnail spans the row's width, above the title and buttons.
 
 use relm4::gtk;
@@ -336,7 +336,7 @@ mod tests {
         use relm4::adw;
         use relm4::adw::prelude::*;
 
-        use crate::core::model::{Playlist, Video};
+        use crate::core::model::Video;
         use crate::ui::widgets;
 
         adw::init().unwrap();
@@ -350,24 +350,16 @@ mod tests {
             duration_secs: Some(65),
             thumbnail_url: None,
         };
-        let playlist = Playlist {
-            id: "p".into(),
-            name: format!("{long} {long}"),
-            thumbnail_url: None,
-            video_count: Some(12),
-        };
-        let video_row = widgets::with_chevron(widgets::video_row(&video));
+        let row = widgets::with_chevron(widgets::video_row(&video));
         for _ in 0..3 {
-            video_row.add_suffix(&gtk::Button::from_icon_name("user-trash-symbolic"));
+            row.add_suffix(&gtk::Button::from_icon_name("user-trash-symbolic"));
         }
-        for row in [video_row, widgets::playlist_row(&playlist)] {
-            let window = gtk::Window::builder().child(&row).build();
-            window.present();
-            let (min, nat, _, _) = row.measure(gtk::Orientation::Horizontal, -1);
-            for width in min..=nat.max(min + 1000) {
-                let (height, _, _, _) = row.measure(gtk::Orientation::Vertical, width);
-                row.allocate(width, height, -1, None);
-            }
+        let window = gtk::Window::builder().child(&row).build();
+        window.present();
+        let (min, nat, _, _) = row.measure(gtk::Orientation::Horizontal, -1);
+        for width in min..=nat.max(min + 1000) {
+            let (height, _, _, _) = row.measure(gtk::Orientation::Vertical, width);
+            row.allocate(width, height, -1, None);
         }
     }
 

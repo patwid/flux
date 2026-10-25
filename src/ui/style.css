@@ -47,10 +47,14 @@ listview.cards {
 
 listview.cards > row {
   padding: 0;
-  margin-bottom: 6px;
+  margin-bottom: 12px;
   border-radius: 12px;
   background-color: var(--card-bg-color);
   box-shadow: 0 0 0 1px var(--card-shade-color);
+}
+
+listview.cards > row:last-child {
+  margin-bottom: 0;
 }
 
 listview.cards > row:hover {

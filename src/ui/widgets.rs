@@ -10,12 +10,25 @@ use crate::core::model::{Channel, Playlist, Video};
 
 /// An activatable list row for a video.
 pub fn video_row(video: &Video) -> adw::ActionRow {
+    let row = video_row_text(video);
+    add_thumbnail(&row, video.thumbnail_url.as_deref());
+    row
+}
+
+/// A video row with a small thumbnail that stays beside the title, for
+/// lists where the title matters more than the picture.
+pub fn compact_video_row(video: &Video) -> adw::ActionRow {
+    let row = video_row_text(video);
+    add_compact_thumbnail(&row, video.thumbnail_url.as_deref());
+    row
+}
+
+fn video_row_text(video: &Video) -> adw::ActionRow {
     let row = plain_row(
         &video.title,
         &format::video_subtitle(video, chrono::Utc::now()),
     );
     row.set_title_lines(2);
-    add_thumbnail(&row, video.thumbnail_url.as_deref());
     row
 }
 
@@ -39,8 +52,14 @@ pub fn playlist_row(playlist: &Playlist) -> adw::ActionRow {
         &playlist.video_count.map(format::videos).unwrap_or_default(),
     );
     row.set_title_lines(2);
-    add_thumbnail(&row, playlist.thumbnail_url.as_deref());
+    add_compact_thumbnail(&row, playlist.thumbnail_url.as_deref());
     with_chevron(row)
+}
+
+/// Adds a small thumbnail to `row` that stays beside the title.
+fn add_compact_thumbnail(row: &adw::ActionRow, url: Option<&str>) {
+    let thumbnail = thumbnail(url, &ThumbnailLayout::new(COMPACT_THUMBNAIL_WIDTH));
+    row.add_prefix(&thumbnail);
 }
 
 /// Adds a thumbnail to `row`, which on narrow rows spans the row above the
@@ -69,9 +88,11 @@ pub fn with_chevron(row: adw::ActionRow) -> adw::ActionRow {
 
 /// Width of the thumbnails in list rows.
 const THUMBNAIL_WIDTH: i32 = 320;
+/// Width of the thumbnails in compact video rows and playlist rows.
+const COMPACT_THUMBNAIL_WIDTH: i32 = 160;
 
 /// A 16:9 thumbnail for list rows, sized by `layout`, loaded asynchronously.
-pub fn thumbnail(url: Option<&str>, layout: &ThumbnailLayout) -> gtk::Widget {
+fn thumbnail(url: Option<&str>, layout: &ThumbnailLayout) -> gtk::Widget {
     let picture = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::Cover)
         .can_shrink(true)
@@ -103,13 +124,22 @@ pub fn channel_row(channel: &Channel, subtitle: Option<&str>) -> adw::ActionRow 
     with_chevron(row)
 }
 
-/// A boxed list for rows of videos or channels.
+/// A boxed list with joined rows, for rows of channels.
 pub fn boxed_list() -> gtk::ListBox {
+    list_with_class("boxed-list")
+}
+
+/// A list whose rows are separate cards, for rows of videos or playlists.
+pub fn card_list() -> gtk::ListBox {
+    list_with_class("boxed-list-separate")
+}
+
+fn list_with_class(class: &str) -> gtk::ListBox {
     let list = gtk::ListBox::builder()
         .selection_mode(gtk::SelectionMode::None)
         .valign(gtk::Align::Start)
         .build();
-    list.add_css_class("boxed-list");
+    list.add_css_class(class);
     list
 }
 

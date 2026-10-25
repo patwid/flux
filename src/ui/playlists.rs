@@ -73,7 +73,7 @@ impl Component for PlaylistsPage {
         let model = PlaylistsPage {
             services,
             playlists: Vec::new(),
-            list: widgets::boxed_list(),
+            list: widgets::card_list(),
         };
         let list = &model.list;
         let widgets = view_output!();

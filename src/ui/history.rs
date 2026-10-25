@@ -145,7 +145,7 @@ impl Component for HistoryPage {
         let model = HistoryPage {
             state: State::default(),
             services,
-            list: widgets::boxed_list(),
+            list: widgets::card_list(),
         };
         let list = &model.list;
         let widgets = view_output!();
@@ -205,7 +205,7 @@ impl HistoryPage {
         self.list.remove_all();
         let now = chrono::Utc::now();
         for (index, entry) in self.state.entries.iter().enumerate() {
-            let row = widgets::video_row(&entry.video);
+            let row = widgets::compact_video_row(&entry.video);
             row.set_subtitle(&format::history_subtitle(entry, now));
             let remove = gtk::Button::builder()
                 .icon_name("user-trash-symbolic")
