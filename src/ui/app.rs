@@ -8,7 +8,8 @@ use super::channel::{self, ChannelPage};
 use super::downloads::{self, DownloadsPage};
 use super::feed::FeedPage;
 use super::history::{self, HistoryPage};
-use super::playlist::PlaylistPage;
+use super::playlist::{self, PlaylistPage};
+use super::playlists::{self, PlaylistsPage};
 use super::replies::RepliesPage;
 use super::search::{self, SearchPage};
 use super::subscriptions::{self, SubscriptionsPage};
@@ -28,6 +29,7 @@ pub struct App {
     feed: Controller<FeedPage>,
     search: Controller<SearchPage>,
     subscriptions: Controller<SubscriptionsPage>,
+    playlists: Controller<PlaylistsPage>,
     history: Controller<HistoryPage>,
     downloads: Controller<DownloadsPage>,
     /// Toasts over pushed pages.
@@ -56,6 +58,7 @@ pub enum Msg {
     OpenPlaylist(Playlist),
     Download(Video, DownloadKind),
     SubscriptionsChanged,
+    SavedPlaylistsChanged,
     OpenReplies(Comment),
     Popped(adw::NavigationPage),
     Toast(String),
@@ -106,6 +109,16 @@ impl From<channel::Output> for Msg {
             channel::Output::OpenPlaylist(p) => Msg::OpenPlaylist(p),
             channel::Output::SubscriptionsChanged => Msg::SubscriptionsChanged,
             channel::Output::Toast(text) => Msg::Toast(text),
+        }
+    }
+}
+
+impl From<playlist::Output> for Msg {
+    fn from(out: playlist::Output) -> Self {
+        match out {
+            playlist::Output::OpenVideo(v) => Msg::OpenVideo(v),
+            playlist::Output::SavedChanged => Msg::SavedPlaylistsChanged,
+            playlist::Output::Toast(text) => Msg::Toast(text),
         }
     }
 }
@@ -173,6 +186,9 @@ impl Component for App {
         let subscriptions = SubscriptionsPage::builder()
             .launch(services.clone())
             .forward(sender.input_sender(), Msg::OpenChannel);
+        let playlists = PlaylistsPage::builder()
+            .launch(services.clone())
+            .forward(sender.input_sender(), Msg::OpenPlaylist);
         let history = HistoryPage::builder()
             .launch(services.clone())
             .forward(sender.input_sender(), Msg::from);
@@ -184,6 +200,7 @@ impl Component for App {
             feed,
             search,
             subscriptions,
+            playlists,
             history,
             downloads,
             toasts: adw::ToastOverlay::new(),
@@ -218,6 +235,12 @@ impl Component for App {
                 "Subscriptions",
                 "starred-symbolic",
                 model.subscriptions.widget(),
+            ),
+            (
+                "playlists",
+                "Playlists",
+                "view-list-bullet-symbolic",
+                model.playlists.widget(),
             ),
             (
                 "history",
@@ -290,6 +313,7 @@ impl Component for App {
                 self.toast(&format!("Downloading “{}”", video.title));
                 self.downloads.emit(downloads::Input::Add(video, kind));
             }
+            Msg::SavedPlaylistsChanged => self.playlists.emit(playlists::Msg::Reload),
             Msg::SubscriptionsChanged => {
                 self.feed.emit(super::feed::Input::Reload);
                 self.subscriptions.emit(subscriptions::Msg::Reload);
@@ -472,7 +496,7 @@ impl App {
         let title = playlist.name.clone();
         let controller = PlaylistPage::builder()
             .launch((self.services.clone(), playlist))
-            .forward(sender.input_sender(), Msg::OpenVideo);
+            .forward(sender.input_sender(), Msg::from);
         self.push(&title, Page::Playlist(controller));
     }
 

@@ -10,6 +10,7 @@ pub mod history;
 pub mod images;
 pub mod player_view;
 pub mod playlist;
+pub mod playlists;
 pub mod replies;
 pub mod search;
 pub mod subscriptions;

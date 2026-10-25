@@ -4,7 +4,7 @@ use relm4::adw::prelude::*;
 use relm4::{Component, ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk};
 
 use super::video::Load;
-use super::{Services, format, widgets};
+use super::{Services, format, log_db_error, widgets};
 use crate::core::model::{Playlist, Video};
 
 /// GTK-independent state of a playlist page.
@@ -12,6 +12,7 @@ use crate::core::model::{Playlist, Video};
 pub struct State {
     pub playlist: Playlist,
     pub videos: Load<Vec<Video>>,
+    pub saved: bool,
 }
 
 #[derive(Debug)]
@@ -19,21 +20,27 @@ pub enum Msg {
     Loaded(Result<Vec<Video>, String>),
     /// Loads the playlist again after it failed to load.
     Retry,
+    ToggleSave,
     Activate(usize),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Effect {
     Load(String),
+    Save(Playlist),
+    Unsave(String),
+    /// Tells the user what happened.
+    Toast(String),
     OpenVideo(Video),
 }
 
 impl State {
-    pub fn new(playlist: Playlist) -> (Self, Vec<Effect>) {
+    pub fn new(playlist: Playlist, saved: bool) -> (Self, Vec<Effect>) {
         let effects = vec![Effect::Load(playlist.id.clone())];
         let state = State {
             playlist,
             videos: Load::Loading,
+            saved,
         };
         (state, effects)
     }
@@ -48,6 +55,17 @@ impl State {
                     return vec![Effect::Load(self.playlist.id.clone())];
                 }
             }
+            Msg::ToggleSave => {
+                self.saved = !self.saved;
+                return vec![
+                    if self.saved {
+                        Effect::Save(self.playlist.clone())
+                    } else {
+                        Effect::Unsave(self.playlist.id.clone())
+                    },
+                    Effect::Toast(format::saved_playlist(&self.playlist.name, self.saved)),
+                ];
+            }
             Msg::Activate(index) => {
                 if let Load::Loaded(videos) = &self.videos
                     && let Some(video) = videos.get(index)
@@ -60,6 +78,14 @@ impl State {
     }
 }
 
+#[derive(Debug)]
+pub enum Output {
+    OpenVideo(Video),
+    /// The playlist was saved to the library or removed from it.
+    SavedChanged,
+    Toast(String),
+}
+
 pub struct PlaylistPage {
     state: State,
     services: Services,
@@ -70,7 +96,7 @@ pub struct PlaylistPage {
 impl Component for PlaylistPage {
     type Init = (Services, Playlist);
     type Input = Msg;
-    type Output = Video;
+    type Output = Output;
     type CommandOutput = Msg;
 
     view! {
@@ -104,6 +130,15 @@ impl Component for PlaylistPage {
                                 add_css_class: "dimmed",
                                 set_visible: model.state.playlist.video_count.is_some(),
                                 set_label: &model.state.playlist.video_count.map(format::videos).unwrap_or_default(),
+                            },
+                            gtk::Button {
+                                set_halign: gtk::Align::Center,
+                                set_margin_top: 6,
+                                #[watch]
+                                set_label: if model.state.saved { "Remove from Library" } else { "Save to Library" },
+                                #[watch]
+                                set_css_classes: if model.state.saved { &["pill"] } else { &["pill", "suggested-action"] },
+                                connect_clicked => Msg::ToggleSave,
                             },
                         },
 
@@ -160,7 +195,8 @@ impl Component for PlaylistPage {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let (state, effects) = State::new(playlist);
+        let saved = log_db_error(services.db.is_playlist_saved(&playlist.id)).unwrap_or(false);
+        let (state, effects) = State::new(playlist, saved);
         let model = PlaylistPage {
             state,
             services,
@@ -207,8 +243,19 @@ impl PlaylistPage {
                         )
                     });
                 }
+                Effect::Save(playlist) => {
+                    log_db_error(self.services.db.save_playlist(&playlist));
+                    let _ = sender.output(Output::SavedChanged);
+                }
+                Effect::Unsave(id) => {
+                    log_db_error(self.services.db.unsave_playlist(&id));
+                    let _ = sender.output(Output::SavedChanged);
+                }
+                Effect::Toast(text) => {
+                    let _ = sender.output(Output::Toast(text));
+                }
                 Effect::OpenVideo(video) => {
-                    let _ = sender.output(video);
+                    let _ = sender.output(Output::OpenVideo(video));
                 }
             }
         }
@@ -242,21 +289,21 @@ mod tests {
 
     #[test]
     fn opening_loads_playlist() {
-        let (state, effects) = State::new(playlist());
+        let (state, effects) = State::new(playlist(), false);
         assert_eq!(effects, [Effect::Load("PL1".into())]);
         assert_eq!(state.videos, Load::Loading);
     }
 
     #[test]
     fn loaded_videos_are_shown() {
-        let (mut state, _) = State::new(playlist());
+        let (mut state, _) = State::new(playlist(), false);
         assert!(state.update(Msg::Loaded(Ok(vec![video("a")]))).is_empty());
         assert_eq!(state.videos, Load::Loaded(vec![video("a")]));
     }
 
     #[test]
     fn failed_load_can_be_retried() {
-        let (mut state, _) = State::new(playlist());
+        let (mut state, _) = State::new(playlist(), false);
         assert!(state.update(Msg::Retry).is_empty(), "still loading");
 
         state.update(Msg::Loaded(Err("offline".into())));
@@ -266,8 +313,29 @@ mod tests {
     }
 
     #[test]
+    fn toggling_save() {
+        let (mut state, _) = State::new(playlist(), false);
+        assert_eq!(
+            state.update(Msg::ToggleSave),
+            [
+                Effect::Save(playlist()),
+                Effect::Toast("Saved “List” to the library".into())
+            ]
+        );
+        assert!(state.saved);
+        assert_eq!(
+            state.update(Msg::ToggleSave),
+            [
+                Effect::Unsave("PL1".into()),
+                Effect::Toast("Removed “List” from the library".into())
+            ]
+        );
+        assert!(!state.saved);
+    }
+
+    #[test]
     fn activating_opens_video() {
-        let (mut state, _) = State::new(playlist());
+        let (mut state, _) = State::new(playlist(), false);
         assert!(state.update(Msg::Activate(0)).is_empty());
         state.update(Msg::Loaded(Ok(vec![video("a"), video("b")])));
         assert_eq!(

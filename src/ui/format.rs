@@ -157,6 +157,15 @@ pub fn subscription(channel: &str, subscribed: bool) -> String {
     }
 }
 
+/// A notice that the user saved a playlist to the library or removed it.
+pub fn saved_playlist(playlist: &str, saved: bool) -> String {
+    if saved {
+        format!("Saved “{playlist}” to the library")
+    } else {
+        format!("Removed “{playlist}” from the library")
+    }
+}
+
 /// The feed banner after channels failed to refresh.
 pub fn failed_channels(n: usize) -> String {
     let unit = if n == 1 { "channel" } else { "channels" };
@@ -179,6 +188,12 @@ mod tests {
     fn formats_subscription_changes() {
         assert_eq!(subscription("Chan", true), "Subscribed to “Chan”");
         assert_eq!(subscription("Chan", false), "Unsubscribed from “Chan”");
+    }
+
+    #[test]
+    fn formats_saved_playlists() {
+        assert_eq!(saved_playlist("L", true), "Saved “L” to the library");
+        assert_eq!(saved_playlist("L", false), "Removed “L” from the library");
     }
 
     #[test]
