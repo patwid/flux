@@ -19,6 +19,7 @@ contributing to the code, human or agent.
   4. **History**: keep a watch history with resume position, and let the user clear it.
   5. **Download**: download videos or audio to disk, with progress and cancel. Downloaded items can be played offline. Video downloads include their subtitles, saved next to the video as `.vtt` files.
   6. **Comments**: show a video's top comments on its page, loaded page by page: the first page with the video's details, the next ones when the user asks for them. The replies to a comment open on their own page (one level, as on YouTube).
+  7. **Playlists**: a channel's page switches between its videos and its playlists, which load when first shown. A playlist opens on its own page with its videos.
 
 ### Non-goals (v1)
 
@@ -26,7 +27,7 @@ contributing to the code, human or agent.
 - Importing NewPipe or OPML subscriptions
 - Flatpak packaging
 - Sites other than YouTube. The backend is still kept behind a trait, so other sites can be added later.
-- Writing comments, playlists, and account login
+- Writing comments, saving or editing playlists, and account login
 
 ## Technology
 
@@ -34,7 +35,7 @@ contributing to the code, human or agent.
 |---------------|------------------------------------------------------------------------|
 | Language      | Rust (stable, edition 2024)                                             |
 | UI            | GTK4 and libadwaita via `relm4` (The Elm Architecture). Target the **latest GNOME** (currently GNOME 50: relm4 feature `gnome_50`, libadwaita 1.9, GTK 4.22) and prefer modern libadwaita widgets (e.g. `AdwSpinner`, `AdwMultiLayoutView`, `AdwViewSwitcherSidebar`, `AdwToggleGroup`, `AdwWrapBox`) over older or GTK-only equivalents. |
-| Extraction    | `rustypipe` (YouTube internal API, pure Rust) for search, details and channels. Stream URLs come from YouTube's visionOS player client (`core/backend/visionos.rs`), because rustypipe's clients' URLs only serve the start of a video without a PO token. rustypipe's player is the fallback, also when a visionOS stream URL refuses a byte from the middle of its stream (checked before the streams are used). |
+| Extraction    | `rustypipe` (YouTube internal API, pure Rust) for search, details and channels. Stream URLs come from YouTube's visionOS player client (`core/backend/visionos.rs`), because rustypipe's clients' URLs only serve the start of a video without a PO token. rustypipe's player is the fallback, also when a visionOS stream URL refuses a byte from the middle of its stream (checked before the streams are used). Channel playlists and playlist videos are raw browse requests through rustypipe, parsed by Flux (`core/backend/lockup.rs`), because rustypipe 0.11 cannot parse YouTube's lockup view models there. |
 | Subscriptions | YouTube channel RSS (`https://www.youtube.com/feeds/videos.xml?channel_id=…`) |
 | Playback      | GStreamer (`playbin3` + `gtk4paintablesink` → `gtk::Picture`). Separate video/audio streams are played through a generated DASH manifest, so they are fetched in bounded byte ranges. Subtitles come from the player response: manual tracks as srv3, whose window positions YouTube's WebVTT conversion loses, and auto-generated ones as WebVTT; downloads save both as WebVTT. They are drawn over the video by the player widget rather than by GStreamer, placed by their cue settings (except auto-generated tracks, which are centered as on YouTube). |
 | Storage       | SQLite via `rusqlite`, with schema migrations and the DB in `$XDG_DATA_HOME/flux/` |
@@ -58,7 +59,7 @@ src/
   main.rs              # app bootstrap only
   lib.rs               # crate root (so integration tests in tests/ can use it)
   core/                # no gtk imports allowed
-    model.rs           # domain types: Video, Channel, Streams, HistoryEntry, Download…
+    model.rs           # domain types: Video, Channel, Playlist, Streams, HistoryEntry, Download…
     backend/           # traits Backend and Downloader; rustypipe and fake impls; feed refresh
     feed.rs            # RSS/Atom parsing → Vec<Video>; feed aggregation and sorting
     streams.rs         # choosing streams / playback source
@@ -69,7 +70,7 @@ src/
   ui/                  # relm4 components, each with a pure `State` + `update`
     app.rs             # root window: navigation, adaptive layouts, page wiring
     feed.rs search.rs subscriptions.rs history.rs downloads.rs   # top-level sections
-    video.rs channel.rs replies.rs                               # pushed pages
+    video.rs channel.rs playlist.rs replies.rs                   # pushed pages
     comments.rs        # paged comment list state and widget (video and replies pages)
     player_view.rs     # video widget and controls
     cue_layout.rs      # places subtitles in the video by their cue settings
