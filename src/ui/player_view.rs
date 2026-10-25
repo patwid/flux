@@ -787,7 +787,17 @@ impl PlayerView {
             let msg = match msg.view() {
                 gst::MessageView::AsyncDone(_) => Some(Msg::Prerolled),
                 gst::MessageView::Eos(_) => Some(Msg::Ended),
-                gst::MessageView::Error(e) => Some(Msg::Error(e.error().to_string())),
+                gst::MessageView::Error(e) => {
+                    eprintln!(
+                        "flux: playback error from {}: {} ({})",
+                        msg.src()
+                            .map(gst::prelude::GstObjectExt::path_string)
+                            .unwrap_or_default(),
+                        e.error(),
+                        e.debug().unwrap_or_default()
+                    );
+                    Some(Msg::Error(e.error().to_string()))
+                }
                 _ => None,
             };
             if let Some(msg) = msg {
