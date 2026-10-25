@@ -18,7 +18,7 @@ contributing to the code, human or agent.
   3. **Subscriptions**: subscribe to channels and get an aggregated feed from RSS.
   4. **History**: keep a watch history with resume position, and let the user clear it.
   5. **Download**: download videos or audio to disk, with progress and cancel. Downloaded items can be played offline. Video downloads include their subtitles, saved next to the video as `.vtt` files.
-  6. **Comments**: show a video's top comments on its page, loaded page by page and only when the user opens them. The replies to a comment open on their own page (one level, as on YouTube).
+  6. **Comments**: show a video's top comments on its page, loaded page by page: the first page with the video's details, the next ones when the user asks for them. The replies to a comment open on their own page (one level, as on YouTube).
 
 ### Non-goals (v1)
 
@@ -101,7 +101,8 @@ src/
 - Video page: when the page is under 700sp wide, or fullscreen, the player is fixed above the scrolled details.
   On wider pages, the player scrolls with the details inside a clamp. An `AdwMultiLayoutView` with the
   layouts `narrow`, `wide` and `fullscreen` places the player. Below the description, an
-  `AdwToggleGroup` switches between related videos (shown first) and comments.
+  `AdwToggleGroup` switches between comments (shown first) and related videos. Related videos are
+  shown instead when a video has no comments.
 - Prefer libadwaita patterns over hand-built ones: menus are `gio::Menu` models backed by actions,
   lists are boxed lists of `AdwActionRow`/`AdwExpanderRow`/`AdwButtonRow` (long lists such as the
   feed use a `GtkListView`), loading and error pages are `AdwStatusPage`s, failures that can be

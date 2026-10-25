@@ -1,4 +1,4 @@
-//! Video page: player, details, related videos.
+//! Video page: player, details, comments, related videos.
 
 use std::path::PathBuf;
 
@@ -227,6 +227,7 @@ impl State {
                 self.video.thumbnail_url = self.video.thumbnail_url.take().or(thumbnail);
                 self.comments = Comments::new(details.comments.clone());
                 self.details = Load::Loaded(details);
+                return self.load_comments();
             }
             Msg::Details(Err(e)) => self.details = Load::Failed(e),
             Msg::RetryDetails => {
@@ -605,16 +606,16 @@ impl Component for VideoPage {
 
             },
 
-            // Related videos and comments, shown one at a time. Comments
-            // are only loaded once their tab is chosen.
+            // Comments and related videos, shown one at a time. Comments
+            // are chosen by `select_tab` once the details are loaded.
             #[name = "tabs"]
             adw::ToggleGroup {
                 set_homogeneous: true,
                 #[watch]
                 set_visible: matches!(model.state.details, Load::Loaded(_)),
-                add: adw::Toggle::builder().name("related").label("Related Videos").build(),
                 // Labelled and enabled by `update_comments_tab`.
                 add: adw::Toggle::builder().name("comments").build(),
+                add: adw::Toggle::builder().name("related").label("Related Videos").build(),
                 connect_active_name_notify[sender] => move |tabs| {
                     if tabs.active_name().as_deref() == Some("comments") {
                         sender.input(PageMsg::State(Msg::ShowComments));
@@ -629,6 +630,8 @@ impl Component for VideoPage {
                 set_visible: matches!(model.state.details, Load::Loaded(_)),
 
                 #[local_ref]
+                add_named[Some("comments")] = comments -> adw::PreferencesGroup {},
+                #[local_ref]
                 add_named[Some("related")] = related -> adw::PreferencesGroup {
                     adw::ActionRow {
                         set_title: "No related videos",
@@ -636,8 +639,6 @@ impl Component for VideoPage {
                         set_visible: model.related_rows.is_empty(),
                     },
                 },
-                #[local_ref]
-                add_named[Some("comments")] = comments -> adw::PreferencesGroup {},
             },
         }
     }
@@ -734,6 +735,9 @@ impl Component for VideoPage {
                     self.comment_list.update(&self.state.comments);
                     self.update_comments_tab(widgets);
                 }
+                if details {
+                    self.select_tab(widgets);
+                }
                 if streams && let Load::Failed(e) = &self.state.playback {
                     self.player.emit(player_view::Msg::Fail(e.clone()));
                 }
@@ -800,6 +804,16 @@ impl VideoPage {
             tab.set_label(Some(&format::comments_title(self.state.comments.count)));
             tab.set_enabled(self.state.comments.available());
         }
+    }
+
+    /// Shows the comments, or the related videos when there are none.
+    fn select_tab(&self, widgets: &VideoPageWidgets) {
+        let tab = if self.state.comments.available() {
+            "comments"
+        } else {
+            "related"
+        };
+        widgets.tabs.set_active_name(Some(tab));
     }
 
     /// Shows the layout for the current width and fullscreen state.
@@ -1439,15 +1453,15 @@ mod tests {
     }
 
     #[test]
-    fn showing_comments_loads_first_page_once() {
-        let mut state = with_comments();
-        assert_eq!(state.comments.count, Some(3));
-        assert!(state.comments.items.is_empty(), "loaded on demand");
-
+    fn details_load_first_comment_page_once() {
+        let (mut state, _) = State::new(init());
+        let mut d = details();
+        d.comments = page(&[], Some("p1"));
         assert_eq!(
-            state.update(Msg::ShowComments),
+            state.update(Msg::Details(Ok(d))),
             [Effect::LoadComments("p1".into())]
         );
+        assert_eq!(state.comments.count, Some(3));
         assert!(state.comments.loading);
         assert!(
             state.update(Msg::ShowComments).is_empty(),
@@ -1463,7 +1477,6 @@ mod tests {
     #[test]
     fn more_comments_are_appended_until_last_page() {
         let mut state = with_comments();
-        state.update(Msg::ShowComments);
         state.update(Msg::Comments(Ok(page(&["a"], Some("p2")))));
 
         assert_eq!(
@@ -1479,7 +1492,6 @@ mod tests {
     #[test]
     fn opens_replies_of_comments_that_have_some() {
         let mut state = with_comments();
-        state.update(Msg::ShowComments);
         let with_replies = Comment {
             reply_count: 2,
             replies: Some("r".into()),
@@ -1501,7 +1513,6 @@ mod tests {
     #[test]
     fn failed_comments_can_be_retried() {
         let mut state = with_comments();
-        state.update(Msg::ShowComments);
         state.update(Msg::Comments(Err("offline".into())));
         assert_eq!(state.comments.error.as_deref(), Some("offline"));
         assert!(!state.comments.loading);
