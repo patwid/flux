@@ -19,6 +19,9 @@ use crate::core::model::{Channel, Comment, DownloadKind, HistoryEntry, Playlist,
 
 /// Windows narrower than this use the mobile layout (bottom view switcher).
 const NARROW_WIDTH_SP: f64 = 550.0;
+/// Windows narrower than this show the library's tabs as icons; the header
+/// bar names the shown tab.
+const MEDIUM_WIDTH_SP: f64 = 800.0;
 
 pub struct App {
     services: Services,
@@ -209,23 +212,31 @@ impl Component for App {
             "system-search-symbolic",
             model.search.widget().upcast_ref(),
         );
+        let (library, library_switchers) = library(&[
+            (
+                "subscriptions",
+                "Subscriptions",
+                "starred-symbolic",
+                model.subscriptions.widget(),
+            ),
+            (
+                "history",
+                "History",
+                "document-open-recent-symbolic",
+                model.history.widget(),
+            ),
+            (
+                "downloads",
+                "Downloads",
+                "folder-download-symbolic",
+                model.downloads.widget(),
+            ),
+        ]);
         add_page(
-            "subscriptions",
-            "Subscriptions",
-            "starred-symbolic",
-            model.subscriptions.widget().upcast_ref(),
-        );
-        add_page(
-            "history",
-            "History",
-            "document-open-recent-symbolic",
-            model.history.widget().upcast_ref(),
-        );
-        add_page(
-            "downloads",
-            "Downloads",
-            "folder-download-symbolic",
-            model.downloads.widget().upcast_ref(),
+            "library",
+            "Library",
+            "folder-videos-symbolic",
+            library.upcast_ref(),
         );
 
         let entry = model.search.model().entry.clone();
@@ -246,6 +257,19 @@ impl Component for App {
             NARROW_WIDTH_SP,
             adw::LengthUnit::Sp,
         ));
+        // Only one breakpoint applies at a time, so the narrow one also
+        // repeats the medium one's setters.
+        let medium = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+            adw::BreakpointConditionLengthType::MaxWidth,
+            MEDIUM_WIDTH_SP,
+            adw::LengthUnit::Sp,
+        ));
+        for switcher in &library_switchers {
+            let icons = adw::InlineViewSwitcherDisplayMode::Icons.to_value();
+            medium.add_setter(switcher, "display-mode", Some(&icons));
+            narrow.add_setter(switcher, "display-mode", Some(&icons));
+        }
+        root.add_breakpoint(medium);
         narrow.add_setter(&widgets.layouts, "layout-name", Some(&"narrow".to_value()));
         root.add_breakpoint(narrow);
         add_actions(&root, &sender);
@@ -470,6 +494,32 @@ impl App {
         self.navigation.push(&nav_page);
         self.pages.push((nav_page, page));
     }
+}
+
+/// The library section: `pages` (name, title, icon, page), shown one at a
+/// time. Each page keeps its own header bar, with a switcher below it.
+fn library(
+    pages: &[(&str, &str, &str, &adw::ToolbarView)],
+) -> (adw::ViewStack, Vec<adw::InlineViewSwitcher>) {
+    let stack = adw::ViewStack::new();
+    let mut switchers = Vec::new();
+    for (name, title, icon, page) in pages {
+        let switcher = adw::InlineViewSwitcher::builder()
+            .stack(&stack)
+            .homogeneous(true)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_bottom(6)
+            .build();
+        let clamp = adw::Clamp::builder()
+            .maximum_size(800)
+            .child(&switcher)
+            .build();
+        page.add_top_bar(&clamp);
+        stack.add_titled_with_icon(*page, Some(name), title, icon);
+        switchers.push(switcher);
+    }
+    (stack, switchers)
 }
 
 /// Desktop layout: sections in a sidebar next to the content.
