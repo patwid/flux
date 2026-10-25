@@ -41,14 +41,20 @@ pub fn thumbnail(url: Option<&str>) -> gtk::Widget {
         .overflow(gtk::Overflow::Hidden)
         .build();
     images::set_picture(&picture, url);
-    // The picture would otherwise request the image's natural size.
-    adw::Clamp::builder()
-        .maximum_size(width)
-        .tightening_threshold(width)
-        .valign(gtk::Align::Center)
-        .child(&picture)
-        .build()
-        .upcast()
+    // The picture would otherwise request the image's natural size, which
+    // is taller than 16:9 for the feed's 4:3 thumbnails and for shorts.
+    let clamp = |orientation, size, child: &gtk::Widget| {
+        adw::Clamp::builder()
+            .orientation(orientation)
+            .maximum_size(size)
+            .tightening_threshold(size)
+            .valign(gtk::Align::Center)
+            .child(child)
+            .build()
+            .upcast::<gtk::Widget>()
+    };
+    let column = clamp(gtk::Orientation::Vertical, height, picture.upcast_ref());
+    clamp(gtk::Orientation::Horizontal, width, &column)
 }
 
 /// A channel avatar with initials until the image is loaded.
