@@ -11,7 +11,7 @@ use crate::core::model::{
     AudioStream, Channel, Comment, CommentPage, DownloadKind, SavedDownload, SearchItem, Streams,
     SubtitleTrack, Video, VideoDetails, VideoStream,
 };
-use crate::core::streams::DEFAULT_MAX_HEIGHT;
+use crate::core::streams::{self, DEFAULT_MAX_HEIGHT};
 use crate::core::subtitles::{self, Cue};
 use crate::core::{download, feed};
 
@@ -99,7 +99,8 @@ impl Backend for RustyPipeBackend {
 
     async fn streams(&self, video_id: &str) -> Result<Streams> {
         match self.visionos_streams(video_id).await {
-            Ok(streams) => return Ok(streams),
+            Ok(streams) if self.serves(&streams).await => return Ok(streams),
+            Ok(_) => eprintln!("flux: visionOS stream URLs refused, using rustypipe"),
             Err(e) => eprintln!("flux: visionOS player failed, using rustypipe: {e}"),
         }
         let p = self.client.query().player(video_id).await?;
@@ -194,6 +195,15 @@ impl RustyPipeBackend {
             on_bytes,
         )
         .await
+    }
+
+    /// Whether the URLs of `streams` serve whole streams, checked with one
+    /// of them. Streams without sizes (e.g. live streams) are not checked.
+    async fn serves(&self, streams: &Streams) -> bool {
+        match streams::sample(streams) {
+            Some((url, size)) => fetch::serves(&self.http, url, size).await,
+            None => true,
+        }
     }
 
     async fn visionos_streams(&self, video_id: &str) -> Result<Streams> {

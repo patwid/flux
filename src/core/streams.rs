@@ -58,6 +58,17 @@ pub fn choose_source(streams: &Streams, max_height: u32) -> Option<PlaybackSourc
     }
 }
 
+/// A stream to check the URLs of `streams` with (see
+/// [`fetch::serves`](super::backend::fetch::serves)), with its size: a video
+/// stream if any has a known size, else an audio stream.
+pub fn sample(streams: &Streams) -> Option<(&str, u64)> {
+    let videos = streams.video_only.iter().chain(&streams.muxed);
+    videos
+        .map(|v| (v.url.as_str(), v.size))
+        .chain(streams.audio.iter().map(|a| (a.url.as_str(), a.size)))
+        .find_map(|(url, size)| Some((url, size?)))
+}
+
 /// A DASH manifest for the best MP4 video and audio streams with known
 /// segment ranges, with the video height.
 fn dash_source(streams: &Streams, max_height: u32) -> Option<(u32, String)> {
@@ -159,6 +170,18 @@ mod tests {
             duration_secs: Some(600),
             subtitles: vec![],
         }
+    }
+
+    #[test]
+    fn samples_a_stream_with_known_size() {
+        let mut s = streams(&[360], &[720], &[128]);
+        assert_eq!(sample(&s), None, "sizes unknown");
+        s.audio[0].size = Some(3);
+        assert_eq!(sample(&s), Some(("128", 3)));
+        s.muxed[0].size = Some(2);
+        assert_eq!(sample(&s), Some(("360-30-1-avc1", 2)));
+        s.video_only[0].size = Some(1);
+        assert_eq!(sample(&s), Some(("720-30-2-avc1", 1)));
     }
 
     #[test]

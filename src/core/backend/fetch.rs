@@ -159,6 +159,23 @@ async fn fetch_range(
     Ok(())
 }
 
+/// Whether `url` (of `size` bytes) serves the middle of the stream, as some
+/// clients' URLs only serve its start, or none of it. Only a refusal (see
+/// [`BackendError::UrlRefused`]) counts: other failures may be passing.
+pub async fn serves(http: &reqwest::Client, url: &str, size: u64) -> bool {
+    let middle = size / 2;
+    let response = http
+        .get(url)
+        .header("Range", format!("bytes={middle}-{middle}"))
+        .send()
+        .await
+        .and_then(reqwest::Response::error_for_status);
+    match response {
+        Ok(_) => true,
+        Err(e) => !matches!(Failure::from(e).error, BackendError::UrlRefused(_)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
@@ -400,6 +417,22 @@ mod tests {
             assert!(matches!(error, BackendError::UrlRefused(_)), "{error:?}");
             assert!(error.to_string().contains(&status.to_string()), "{error}");
         }
+    }
+
+    /// Whether the fake stream with `script` [`serves`], with the range asked.
+    async fn check(script: Vec<Reply>) -> (bool, Vec<(u64, u64)>) {
+        let (url, requests) = serve(data(), script).await;
+        let served = serves(&client(), &url, data().len() as u64).await;
+        let requests = requests.lock().unwrap().clone();
+        (served, requests)
+    }
+
+    #[tokio::test]
+    async fn checks_that_the_middle_of_a_stream_is_served() {
+        assert_eq!(check(vec![]).await, (true, vec![(12, 12)]));
+        assert!(!check(vec![Reply::Status(403)]).await.0);
+        assert!(!check(vec![Reply::Status(410)]).await.0);
+        assert!(check(vec![Reply::Status(503)]).await.0, "may be passing");
     }
 
     #[tokio::test]
