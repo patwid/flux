@@ -10,6 +10,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 feed-rs = "3.0.0"
 futures = { version = "0.3.34", default-features = false, features = ["std", "async-await"] }
 gstreamer = "0.25"
+image-webp = "0.2.4"
 quick-xml = "0.42"
 relm4 = { version = "0.11", features = ["libadwaita", "gnome_50"] }
 reqwest = { version = "0.12", default-features = false, features = ["default-tls"] }

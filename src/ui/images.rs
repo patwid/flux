@@ -42,16 +42,79 @@ pub fn load(url: &str, apply: impl FnOnce(&gdk::Texture) + 'static) {
             .await
             .ok(),
         };
-        let _ = tx.send(bytes);
+        // Decoded here, off the main thread: GDK has no WebP loader of its own.
+        let image = bytes.map(|bytes| match decode_webp(&bytes) {
+            Some(pixels) => Image::Pixels(pixels),
+            None => Image::Encoded(bytes.to_vec()),
+        });
+        let _ = tx.send(image);
     });
     glib::spawn_future_local(async move {
-        let Ok(Some(bytes)) = rx.await else { return };
-        let Ok(texture) = gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes.to_vec())) else {
+        let Ok(Some(image)) = rx.await else { return };
+        let Some(texture) = image.into_texture() else {
             return;
         };
         CACHE.with_borrow_mut(|c| c.insert(url, texture.clone()));
         apply(&texture);
     });
+}
+
+/// A fetched image, ready to become a texture on the main thread.
+enum Image {
+    /// In a format GDK decodes itself (PNG, JPEG, ...).
+    Encoded(Vec<u8>),
+    Pixels(Pixels),
+}
+
+impl Image {
+    fn into_texture(self) -> Option<gdk::Texture> {
+        match self {
+            Image::Encoded(bytes) => gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes)).ok(),
+            Image::Pixels(p) => {
+                let format = if p.has_alpha {
+                    gdk::MemoryFormat::R8g8b8a8
+                } else {
+                    gdk::MemoryFormat::R8g8b8
+                };
+                let stride = p.width as usize * if p.has_alpha { 4 } else { 3 };
+                let texture = gdk::MemoryTexture::new(
+                    p.width as i32,
+                    p.height as i32,
+                    format,
+                    &glib::Bytes::from_owned(p.data),
+                    stride,
+                );
+                Some(texture.upcast())
+            }
+        }
+    }
+}
+
+/// Decoded pixels, RGB or RGBA with rows packed tightly.
+#[derive(Debug)]
+struct Pixels {
+    width: u32,
+    height: u32,
+    has_alpha: bool,
+    data: Vec<u8>,
+}
+
+/// Decodes `bytes` if they are a WebP image, which YouTube serves for its
+/// signed thumbnail URLs (even those ending in `.jpg`).
+fn decode_webp(bytes: &[u8]) -> Option<Pixels> {
+    if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WEBP" {
+        return None;
+    }
+    let mut decoder = image_webp::WebPDecoder::new(std::io::Cursor::new(bytes)).ok()?;
+    let (width, height) = decoder.dimensions();
+    let mut data = vec![0; decoder.output_buffer_size()?];
+    decoder.read_image(&mut data).ok()?;
+    Some(Pixels {
+        width,
+        height,
+        has_alpha: decoder.has_alpha(),
+        data,
+    })
 }
 
 /// Shows the image at `url` in `picture` once loaded.
@@ -112,6 +175,24 @@ impl<K: Clone + Eq + Hash, V: Clone> Cache<K, V> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decodes_webp() {
+        let rgb = [255, 0, 0, 0, 0, 255];
+        let mut webp = Vec::new();
+        image_webp::WebPEncoder::new(&mut webp)
+            .encode(&rgb, 2, 1, image_webp::ColorType::Rgb8)
+            .unwrap();
+
+        let pixels = decode_webp(&webp).unwrap();
+        assert_eq!((pixels.width, pixels.height), (2, 1));
+        assert_eq!(pixels.data, rgb);
+    }
+
+    #[test]
+    fn leaves_other_formats_to_gdk() {
+        assert!(decode_webp(b"\xff\xd8\xff\xe0 not a webp").is_none());
+    }
 
     #[test]
     fn evicts_oldest_entries() {
