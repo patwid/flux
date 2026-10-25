@@ -7,7 +7,8 @@
 use serde::Deserialize;
 use serde_json::json;
 
-use super::{BackendError, Result};
+use super::{BackendError, Result, fetch};
+use crate::core::download::RetryPolicy;
 use crate::core::model::{AudioStream, SegmentRanges, Streams, SubtitleTrack, VideoStream};
 
 pub const PLAYER_URL: &str = "https://www.youtube.com/youtubei/v1/player?prettyPrint=false";
@@ -15,6 +16,8 @@ pub const CLIENT_NAME: &str = "VISIONOS";
 /// Numeric client id, sent as `X-YouTube-Client-Name`.
 pub const CLIENT_ID: &str = "101";
 pub const CLIENT_VERSION: &str = "1.02";
+/// Retries of a failed player request; the user is waiting for it.
+const PLAYER_RETRIES: u32 = 2;
 pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
 
 /// The JSON body of a player request.
@@ -236,19 +239,25 @@ pub async fn fetch_streams(
     video_id: &str,
     visitor_data: &str,
 ) -> Result<Streams> {
-    let body = http
-        .post(PLAYER_URL)
-        .header("User-Agent", USER_AGENT)
-        .header("X-YouTube-Client-Name", CLIENT_ID)
-        .header("X-YouTube-Client-Version", CLIENT_VERSION)
-        .header("X-Goog-Visitor-Id", visitor_data)
-        .header("Origin", "https://www.youtube.com")
-        .json(&player_request(video_id, visitor_data))
-        .send()
-        .await?
-        .error_for_status()?
-        .bytes()
-        .await?;
+    let retry = RetryPolicy {
+        retries: PLAYER_RETRIES,
+        ..RetryPolicy::default()
+    };
+    let body = fetch::with_retries(&retry, || async {
+        http.post(PLAYER_URL)
+            .header("User-Agent", USER_AGENT)
+            .header("X-YouTube-Client-Name", CLIENT_ID)
+            .header("X-YouTube-Client-Version", CLIENT_VERSION)
+            .header("X-Goog-Visitor-Id", visitor_data)
+            .header("Origin", "https://www.youtube.com")
+            .json(&player_request(video_id, visitor_data))
+            .send()
+            .await?
+            .error_for_status()?
+            .bytes()
+            .await
+    })
+    .await?;
     parse_player_response(&body)
 }
 

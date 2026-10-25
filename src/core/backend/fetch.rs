@@ -159,6 +159,29 @@ async fn fetch_range(
     Ok(())
 }
 
+/// Makes the request of `attempt` again, waiting as `policy` says, while
+/// it fails in a way worth retrying (see [`download::retryable_status`]).
+pub async fn with_retries<T, F, Fut>(policy: &RetryPolicy, mut attempt: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = reqwest::Result<T>>,
+{
+    let mut retry = 0;
+    loop {
+        let failure = match attempt().await {
+            Ok(value) => return Ok(value),
+            Err(e) => Failure::from(e),
+        };
+        match policy.delay(retry).filter(|_| failure.retryable) {
+            Some(delay) => {
+                retry += 1;
+                tokio::time::sleep(delay).await;
+            }
+            None => return Err(failure.error),
+        }
+    }
+}
+
 /// The size of the stream at `url`, from the `Content-Range` of a request
 /// for its first byte.
 pub async fn size(http: &reqwest::Client, url: &str) -> Result<u64> {
@@ -443,6 +466,40 @@ mod tests {
         let served = serves(&client(), &url, data().len() as u64).await;
         let requests = requests.lock().unwrap().clone();
         (served, requests)
+    }
+
+    /// Requests the first range of the fake stream with `script`, retrying
+    /// `retries` times. Returns the result and the number of requests.
+    async fn request(script: Vec<Reply>, retries: u32) -> (Result<Vec<u8>>, usize) {
+        let (url, requests) = serve(data(), script).await;
+        let http = client();
+        let result = with_retries(&options(retries).retry, || async {
+            let response = http
+                .get(&url)
+                .header("Range", "bytes=0-9")
+                .send()
+                .await?
+                .error_for_status()?;
+            Ok(response.bytes().await?.to_vec())
+        })
+        .await;
+        let count = requests.lock().unwrap().len();
+        (result, count)
+    }
+
+    #[tokio::test]
+    async fn retries_requests() {
+        let (result, count) = request(vec![Reply::Status(503), Reply::Stall(2)], 2).await;
+        assert_eq!(result.unwrap(), data()[..10]);
+        assert_eq!(count, 3);
+
+        let (result, count) = request(vec![Reply::Status(503); 3], 2).await;
+        assert!(result.is_err());
+        assert_eq!(count, 3);
+
+        let (result, count) = request(vec![Reply::Status(403)], 2).await;
+        assert!(matches!(result, Err(BackendError::UrlRefused(_))));
+        assert_eq!(count, 1);
     }
 
     #[tokio::test]
