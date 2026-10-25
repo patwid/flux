@@ -19,7 +19,7 @@ contributing to the code, human or agent.
   4. **History**: keep a watch history with resume position, and let the user clear it.
   5. **Download**: download videos or audio to disk, with progress and cancel. Downloaded items can be played offline. Video downloads include their subtitles, saved next to the video as `.vtt` files.
   6. **Comments**: show a video's top comments on its page, loaded page by page: the first page with the video's details, the next ones when the user asks for them. The replies to a comment open on their own page (one level, as on YouTube).
-  7. **Playlists**: a channel's page switches between its videos and its playlists, which load when first shown. A playlist opens on its own page with its videos.
+  7. **Playlists**: a channel's page switches between its videos and its playlists, which load when first shown. A playlist opens on its own page with its videos, where it can be saved to the library (a bookmark: its videos are still fetched from YouTube).
 
 ### Non-goals (v1)
 
@@ -27,7 +27,7 @@ contributing to the code, human or agent.
 - Importing NewPipe or OPML subscriptions
 - Flatpak packaging
 - Sites other than YouTube. The backend is still kept behind a trait, so other sites can be added later.
-- Writing comments, saving or editing playlists, and account login
+- Writing comments, creating or editing playlists, and account login
 
 ## Technology
 
@@ -64,12 +64,13 @@ src/
     feed.rs            # RSS/Atom parsing → Vec<Video>; feed aggregation and sorting
     streams.rs         # choosing streams / playback source
     subtitles.rs       # WebVTT parsing; the cue to show at a position
-    db.rs              # rusqlite: subscriptions, history, downloads, feed cache
+    db.rs              # rusqlite: subscriptions, saved playlists, history, downloads, feed cache
     download.rs        # download queue state machine and file naming
   player.rs            # GStreamer playback engine (no gtk; sinks are injected)
   ui/                  # relm4 components, each with a pure `State` + `update`
     app.rs             # root window: navigation, adaptive layouts, page wiring
-    feed.rs search.rs subscriptions.rs history.rs downloads.rs   # top-level sections
+    feed.rs search.rs                                            # top-level sections
+    subscriptions.rs playlists.rs history.rs downloads.rs        # library tabs
     video.rs channel.rs playlist.rs replies.rs                   # pushed pages
     comments.rs        # paged comment list state and widget (video and replies pages)
     player_view.rs     # video widget and controls
@@ -91,13 +92,16 @@ src/
 ### Responsive layout
 
 - `AdwNavigationView` for drill-down (list → video detail → player).
-- Top-level sections are Feed, Search, Subscriptions, History, and Downloads, and they live in an `AdwViewStack`.
+- Top-level sections are Feed, Search, and Library, and they live in an `AdwViewStack`.
+  - Library is an `AdwViewStack` of Subscriptions, Playlists, History, and Downloads. Each keeps its
+    own header bar, with an `AdwInlineViewSwitcher` below it that shows icons in windows under 800sp.
   - An `AdwMultiLayoutView` provides two layouts, and the stack is placed in each through an `AdwLayoutSlot`:
     - `narrow`: an `AdwViewSwitcherBar` at the bottom.
     - `wide`: an `AdwViewSwitcherSidebar` in an `AdwOverlaySplitView`.
   - Each section is an `AdwToolbarView` with its own header bar, which holds the section's actions
     (refresh, clear, the search entry) and the primary menu.
-- An `AdwBreakpoint` (max-width 550sp) switches the layout, rather than size-allocation hacks.
+- An `AdwBreakpoint` (max-width 550sp) switches the layout, rather than size-allocation hacks. Only one
+  breakpoint applies at a time, so the narrow one repeats the 800sp one's setters.
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
 - Video page: when the page is under 700sp wide, or fullscreen, the player is fixed above the scrolled details.
   On wider pages, the player scrolls with the details inside a clamp. An `AdwMultiLayoutView` with the
