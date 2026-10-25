@@ -38,7 +38,7 @@ contributing to the code, human or agent.
 | Subscriptions | YouTube channel RSS (`https://www.youtube.com/feeds/videos.xml?channel_id=…`) |
 | Playback      | GStreamer (`playbin3` + `gtk4paintablesink` → `gtk::Picture`). Separate video/audio streams are played through a generated DASH manifest, so they are fetched in bounded byte ranges. Subtitles come from the player response: manual tracks as srv3, whose window positions YouTube's WebVTT conversion loses, and auto-generated ones as WebVTT; downloads save both as WebVTT. They are drawn over the video by the player widget rather than by GStreamer, placed by their cue settings (except auto-generated tracks, which are centered as on YouTube). |
 | Storage       | SQLite via `rusqlite`, with schema migrations and the DB in `$XDG_DATA_HOME/flux/` |
-| Downloads     | Own downloader: 10 MiB byte-range chunks (YouTube refuses whole-file requests), muxed with ffmpeg; saved to `$XDG_DOWNLOAD_DIR/Flux/` |
+| Downloads     | Own downloader: 10 MiB byte-range chunks (YouTube refuses whole-file requests), muxed with ffmpeg; saved to `$XDG_DOWNLOAD_DIR/Flux/`. Failed requests are retried with backoff from the last byte received, and a retried download resumes its `.part` files. |
 | Async         | `tokio`, through Relm4 commands/workers                                         |
 
 App ID: `io.github.patwid.Flux`
@@ -110,6 +110,9 @@ src/
 - Keyboard shortcuts are listed in the shortcuts dialog (`ui/app.rs`); keep it up to date.
 - Videos never start playing by themselves. Opening a video (new or reopened, streamed or
   downloaded) loads it at its resume position, paused.
+- After a playback error (an expired stream URL, a network or decoder failure), the video is
+  loaded again at its position with freshly fetched streams, and keeps playing if it was. Only
+  repeated errors without progress in between show the error page.
 - Player controls hide during playback. A tap toggles them; a double tap, `f` or the button toggles
   fullscreen; `Esc` leaves fullscreen; `Space` plays or pauses.
 
