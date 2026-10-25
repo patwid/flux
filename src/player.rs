@@ -5,6 +5,7 @@ use std::time::Duration;
 use gst::prelude::*;
 use gstreamer as gst;
 
+use crate::core::download::RetryPolicy;
 use crate::core::model::PlaybackSource;
 
 #[derive(Debug, thiserror::Error)]
@@ -48,6 +49,10 @@ impl Engine {
                 pipeline.upcast()
             }
         };
+        pipeline
+            .downcast_ref::<gst::Bin>()
+            .expect("pipelines are bins")
+            .connect_deep_element_added(|_, _, element| configure_http(element));
         Ok(Self { pipeline })
     }
 
@@ -117,6 +122,23 @@ fn add_branch(
         }
     });
     Ok(())
+}
+
+/// Makes `element` retry failed HTTP requests as downloads do (see
+/// [`RetryPolicy`]), if it makes any. GStreamer's sources and adaptive
+/// demuxers retry only 3 times by default, without waiting in between.
+fn configure_http(element: &gst::Element) {
+    let Some(retries) = ["max-retries", "retries"]
+        .into_iter()
+        .find(|p| element.has_property(p))
+        .filter(|_| element.has_property("retry-backoff-factor"))
+    else {
+        return;
+    };
+    let policy = RetryPolicy::default();
+    element.set_property(retries, policy.retries as i32);
+    element.set_property("retry-backoff-factor", policy.first_delay.as_secs_f64());
+    element.set_property("retry-backoff-max", policy.max_delay.as_secs_f64());
 }
 
 impl Drop for Engine {
@@ -227,6 +249,49 @@ mod tests {
         wait_for(&engine, &[gst::MessageType::AsyncDone]);
         let position = engine.position().unwrap();
         assert!(position >= Duration::from_millis(400), "{position:?}");
+    }
+
+    /// The retry properties of `element`.
+    fn retries(element: &gst::Element) -> (i32, f64, f64) {
+        let retries = ["max-retries", "retries"]
+            .into_iter()
+            .find(|p| element.has_property(p))
+            .unwrap();
+        (
+            element.property(retries),
+            element.property("retry-backoff-factor"),
+            element.property("retry-backoff-max"),
+        )
+    }
+
+    #[test]
+    fn http_elements_retry_with_backoff() {
+        gst::init().unwrap();
+        for factory in ["souphttpsrc", "dashdemux2", "hlsdemux2"] {
+            let element = gst::ElementFactory::make(factory).build().unwrap();
+            configure_http(&element);
+            assert_eq!(retries(&element), (10, 1.0, 30.0), "{factory}");
+        }
+        // Other elements are left alone.
+        configure_http(&sink());
+    }
+
+    #[test]
+    fn configures_the_http_elements_it_creates() {
+        gst::init().unwrap();
+        // Nothing listens on port 9; the source is created all the same.
+        let source = PlaybackSource::Uri("http://127.0.0.1:9/video.webm".into());
+        let engine = Engine::new(&source, sink(), sink()).unwrap();
+        let _ = engine.pause();
+
+        let bin = engine.pipeline.downcast_ref::<gst::Bin>().unwrap();
+        let http = bin
+            .iterate_recurse()
+            .into_iter()
+            .flatten()
+            .find(|e| e.factory().is_some_and(|f| f.name() == "souphttpsrc"))
+            .expect("an HTTP source");
+        assert_eq!(retries(&http).0, 10);
     }
 
     #[test]
