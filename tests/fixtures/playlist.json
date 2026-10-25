@@ -1,0 +1,551 @@
+{
+ "contents": {
+  "twoColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "selected": true,
+      "content": {
+       "sectionListRenderer": {
+        "contents": [
+         {
+          "itemSectionRenderer": {
+           "contents": [
+            {
+             "lockupViewModel": {
+              "contentImage": {
+               "thumbnailViewModel": {
+                "image": {
+                 "sources": [
+                  {
+                   "url": "https://i.ytimg.com/vi/UjtOGPJ0URM/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLD3S-_uwAsPYyEKyzfhD5RqyG12rw",
+                   "width": 168,
+                   "height": 94
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/UjtOGPJ0URM/hqdefault.jpg?sqp=-oaymwEbCMQBEG5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLC6w9xg1Y2X_tDq1uu-cg9znSmnTw",
+                   "width": 196,
+                   "height": 110
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/UjtOGPJ0URM/hqdefault.jpg?sqp=-oaymwEcCPYBEIoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLBAj6ISEG9UxsV_mT_VHiEaA2YB_A",
+                   "width": 246,
+                   "height": 138
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/UjtOGPJ0URM/hqdefault.jpg?sqp=-oaymwEcCNACELwBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCLpaNK8v2d6tegu96PrObSKDiumg",
+                   "width": 336,
+                   "height": 188
+                  }
+                 ]
+                },
+                "overlays": [
+                 {
+                  "thumbnailBottomOverlayViewModel": {
+                   "badges": [
+                    {
+                     "thumbnailBadgeViewModel": {
+                      "text": "8:18",
+                      "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                      "animationActivationTargetId": "UjtOGPJ0URM",
+                      "animationActivationEntityKey": "Eh8veW91dHViZS9hcHAvd2F0Y2gvcGxheWVyX3N0YXRlIMMCKAE%3D",
+                      "animatedText": "Now playing",
+                      "animationActivationEntitySelectorType": "THUMBNAIL_BADGE_ANIMATION_ENTITY_SELECTOR_TYPE_PLAYER_STATE"
+                     }
+                    }
+                   ]
+                  }
+                 },
+                 {}
+                ]
+               }
+              },
+              "metadata": {
+               "lockupMetadataViewModel": {
+                "title": {
+                 "content": "Why Alien Life Would be our Doom - The Great Filter"
+                },
+                "image": {},
+                "metadata": {
+                 "contentMetadataViewModel": {
+                  "metadataRows": [
+                   {
+                    "metadataParts": [
+                     {
+                      "text": {
+                       "content": "Kurzgesagt – In a Nutshell",
+                       "commandRuns": [
+                        {
+                         "startIndex": 0,
+                         "length": 26,
+                         "onTap": {
+                          "innertubeCommand": {
+                           "browseEndpoint": {
+                            "browseId": "UCsXVk37bltHxD1rDPwtNM8Q",
+                            "canonicalBaseUrl": "/@kurzgesagt"
+                           }
+                          }
+                         }
+                        }
+                       ],
+                       "attachmentRuns": [
+                        {
+                         "startIndex": 26,
+                         "length": 0,
+                         "element": {
+                          "type": {
+                           "imageType": {
+                            "image": {
+                             "sources": [
+                              {
+                               "clientResource": {
+                                "imageName": "CHECK_CIRCLE_FILLED"
+                               },
+                               "width": 14,
+                               "height": 14
+                              }
+                             ]
+                            }
+                           }
+                          },
+                          "properties": {
+                           "layoutProperties": {
+                            "height": {
+                             "value": 14,
+                             "unit": "DIMENSION_UNIT_POINT"
+                            },
+                            "width": {
+                             "value": 14,
+                             "unit": "DIMENSION_UNIT_POINT"
+                            },
+                            "margin": {
+                             "left": {
+                              "value": 4,
+                              "unit": "DIMENSION_UNIT_POINT"
+                             }
+                            }
+                           }
+                          }
+                         },
+                         "alignment": "ALIGNMENT_VERTICAL_CENTER"
+                        }
+                       ]
+                      }
+                     }
+                    ]
+                   },
+                   {
+                    "metadataParts": [
+                     {
+                      "text": {
+                       "content": "27M views"
+                      }
+                     },
+                     {
+                      "text": {
+                       "content": "8 years ago"
+                      },
+                      "accessibilityLabel": "8 years ago"
+                     }
+                    ]
+                   }
+                  ],
+                  "delimiter": " • "
+                 }
+                }
+               }
+              },
+              "contentId": "UjtOGPJ0URM",
+              "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+             }
+            },
+            {
+             "lockupViewModel": {
+              "contentImage": {
+               "thumbnailViewModel": {
+                "image": {
+                 "sources": [
+                  {
+                   "url": "https://i.ytimg.com/vi/9P6rdqiybaw/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLDhXU9CAQ9ClW0v5KzyJGp4KhsP3w",
+                   "width": 168,
+                   "height": 94
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/9P6rdqiybaw/hqdefault.jpg?sqp=-oaymwEbCMQBEG5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLCuRBo3zFQHFhO6E_w8_BG8kWBVRQ",
+                   "width": 196,
+                   "height": 110
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/9P6rdqiybaw/hqdefault.jpg?sqp=-oaymwEcCPYBEIoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLCb3JyKNNxBPYjfaNdMiWIThbX8og",
+                   "width": 246,
+                   "height": 138
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/9P6rdqiybaw/hqdefault.jpg?sqp=-oaymwEcCNACELwBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDaCUZ0ThjdWNfoUFeickqL7L3HHQ",
+                   "width": 336,
+                   "height": 188
+                  }
+                 ]
+                },
+                "overlays": [
+                 {
+                  "thumbnailBottomOverlayViewModel": {
+                   "badges": [
+                    {
+                     "thumbnailBadgeViewModel": {
+                      "text": "8:09",
+                      "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                      "animationActivationTargetId": "9P6rdqiybaw",
+                      "animationActivationEntityKey": "Eh8veW91dHViZS9hcHAvd2F0Y2gvcGxheWVyX3N0YXRlIMMCKAE%3D",
+                      "animatedText": "Now playing",
+                      "animationActivationEntitySelectorType": "THUMBNAIL_BADGE_ANIMATION_ENTITY_SELECTOR_TYPE_PLAYER_STATE"
+                     }
+                    }
+                   ]
+                  }
+                 },
+                 {}
+                ]
+               }
+              },
+              "metadata": {
+               "lockupMetadataViewModel": {
+                "title": {
+                 "content": "Wormholes Explained – Breaking Spacetime"
+                },
+                "image": {},
+                "metadata": {
+                 "contentMetadataViewModel": {
+                  "metadataRows": [
+                   {
+                    "metadataParts": [
+                     {
+                      "text": {
+                       "content": "Kurzgesagt – In a Nutshell",
+                       "commandRuns": [
+                        {
+                         "startIndex": 0,
+                         "length": 26,
+                         "onTap": {
+                          "innertubeCommand": {
+                           "browseEndpoint": {
+                            "browseId": "UCsXVk37bltHxD1rDPwtNM8Q",
+                            "canonicalBaseUrl": "/@kurzgesagt"
+                           }
+                          }
+                         }
+                        }
+                       ],
+                       "attachmentRuns": [
+                        {
+                         "startIndex": 26,
+                         "length": 0,
+                         "element": {
+                          "type": {
+                           "imageType": {
+                            "image": {
+                             "sources": [
+                              {
+                               "clientResource": {
+                                "imageName": "CHECK_CIRCLE_FILLED"
+                               },
+                               "width": 14,
+                               "height": 14
+                              }
+                             ]
+                            }
+                           }
+                          },
+                          "properties": {
+                           "layoutProperties": {
+                            "height": {
+                             "value": 14,
+                             "unit": "DIMENSION_UNIT_POINT"
+                            },
+                            "width": {
+                             "value": 14,
+                             "unit": "DIMENSION_UNIT_POINT"
+                            },
+                            "margin": {
+                             "left": {
+                              "value": 4,
+                              "unit": "DIMENSION_UNIT_POINT"
+                             }
+                            }
+                           }
+                          }
+                         },
+                         "alignment": "ALIGNMENT_VERTICAL_CENTER"
+                        }
+                       ]
+                      }
+                     }
+                    ]
+                   },
+                   {
+                    "metadataParts": [
+                     {
+                      "text": {
+                       "content": "25M views"
+                      }
+                     },
+                     {
+                      "text": {
+                       "content": "8 years ago"
+                      },
+                      "accessibilityLabel": "8 years ago"
+                     }
+                    ]
+                   }
+                  ],
+                  "delimiter": " • "
+                 }
+                }
+               }
+              },
+              "contentId": "9P6rdqiybaw",
+              "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+             }
+            },
+            {
+             "lockupViewModel": {
+              "contentImage": {
+               "thumbnailViewModel": {
+                "image": {
+                 "sources": [
+                  {
+                   "url": "https://i.ytimg.com/vi/NtQkz0aRDe8/hqdefault.jpg?sqp=-oaymwEbCKgBEF5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLB5Evdka-NJ2L7KYGgt3SwwrMo0oQ",
+                   "width": 168,
+                   "height": 94
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/NtQkz0aRDe8/hqdefault.jpg?sqp=-oaymwEbCMQBEG5IVfKriqkDDggBFQAAiEIYAXABwAEG&rs=AOn4CLDRwLouV8hxPphgPsOs1-_oWWgJwA",
+                   "width": 196,
+                   "height": 110
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/NtQkz0aRDe8/hqdefault.jpg?sqp=-oaymwEcCPYBEIoBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLA8V8_tRBZr-q0bASiGAl55PbnCpg",
+                   "width": 246,
+                   "height": 138
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/NtQkz0aRDe8/hqdefault.jpg?sqp=-oaymwEcCNACELwBSFXyq4qpAw4IARUAAIhCGAFwAcABBg==&rs=AOn4CLDky5PkjD_uq2bIpNzbn7tmAy1zIQ",
+                   "width": 336,
+                   "height": 188
+                  }
+                 ]
+                },
+                "overlays": [
+                 {
+                  "thumbnailBottomOverlayViewModel": {
+                   "badges": [
+                    {
+                     "thumbnailBadgeViewModel": {
+                      "text": "8:58",
+                      "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT",
+                      "animationActivationTargetId": "NtQkz0aRDe8",
+                      "animationActivationEntityKey": "Eh8veW91dHViZS9hcHAvd2F0Y2gvcGxheWVyX3N0YXRlIMMCKAE%3D",
+                      "animatedText": "Now playing",
+                      "animationActivationEntitySelectorType": "THUMBNAIL_BADGE_ANIMATION_ENTITY_SELECTOR_TYPE_PLAYER_STATE"
+                     }
+                    }
+                   ]
+                  }
+                 },
+                 {}
+                ]
+               }
+              },
+              "metadata": {
+               "lockupMetadataViewModel": {
+                "title": {
+                 "content": "How We Could Build a Moon Base TODAY – Space Colonization 1"
+                },
+                "image": {},
+                "metadata": {
+                 "contentMetadataViewModel": {
+                  "metadataRows": [
+                   {
+                    "metadataParts": [
+                     {
+                      "text": {
+                       "content": "Kurzgesagt – In a Nutshell",
+                       "commandRuns": [
+                        {
+                         "startIndex": 0,
+                         "length": 26,
+                         "onTap": {
+                          "innertubeCommand": {
+                           "browseEndpoint": {
+                            "browseId": "UCsXVk37bltHxD1rDPwtNM8Q",
+                            "canonicalBaseUrl": "/@kurzgesagt"
+                           }
+                          }
+                         }
+                        }
+                       ],
+                       "attachmentRuns": [
+                        {
+                         "startIndex": 26,
+                         "length": 0,
+                         "element": {
+                          "type": {
+                           "imageType": {
+                            "image": {
+                             "sources": [
+                              {
+                               "clientResource": {
+                                "imageName": "CHECK_CIRCLE_FILLED"
+                               },
+                               "width": 14,
+                               "height": 14
+                              }
+                             ]
+                            }
+                           }
+                          },
+                          "properties": {
+                           "layoutProperties": {
+                            "height": {
+                             "value": 14,
+                             "unit": "DIMENSION_UNIT_POINT"
+                            },
+                            "width": {
+                             "value": 14,
+                             "unit": "DIMENSION_UNIT_POINT"
+                            },
+                            "margin": {
+                             "left": {
+                              "value": 4,
+                              "unit": "DIMENSION_UNIT_POINT"
+                             }
+                            }
+                           }
+                          }
+                         },
+                         "alignment": "ALIGNMENT_VERTICAL_CENTER"
+                        }
+                       ]
+                      }
+                     }
+                    ]
+                   },
+                   {
+                    "metadataParts": [
+                     {
+                      "text": {
+                       "content": "17M views"
+                      }
+                     },
+                     {
+                      "text": {
+                       "content": "8 years ago"
+                      },
+                      "accessibilityLabel": "8 years ago"
+                     }
+                    ]
+                   }
+                  ],
+                  "delimiter": " • "
+                 }
+                }
+               }
+              },
+              "contentId": "NtQkz0aRDe8",
+              "contentType": "LOCKUP_CONTENT_TYPE_VIDEO"
+             }
+            }
+           ],
+           "targetId": "PLFs4vir_WsTwCrTf_-NjTgt1foROcMC18"
+          }
+         },
+         {
+          "continuationItemViewModel": {
+           "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+           "continuationCommand": {
+            "innertubeCommand": {
+             "continuationCommand": {
+              "token": "4qmFsgJbEiRWTFBMRnM0dmlyX1dzVHdDclRmXy1OalRndDFmb1JPY01DMTgaDGtnRURDTGNMNEFzQpoCJFZMUExGczR2aXJfV3NUd0NyVGZfLU5qVGd0MWZvUk9jTUMxOA%3D%3D",
+              "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+             }
+            }
+           }
+          }
+         }
+        ],
+        "targetId": "VLPLFs4vir_WsTwCrTf_-NjTgt1foROcMC18",
+        "sectionListLayoutConfiguration": {
+         "layoutConfiguration": {
+          "responsiveContainerConfiguration": {
+           "responsiveSize": "RESPONSIVE_SIZE_COMPACT",
+           "responsiveMap": [
+            {
+             "containerSize": "CONTAINER_SIZE_NARROW",
+             "containerType": "CONTAINER_TYPE_VERTICAL_LIST",
+             "maxWidth": 599,
+             "minColumnSize": 310,
+             "minColumnCount": 1,
+             "maxColumnCount": 1,
+             "spacingConfiguration": {
+              "columnGap": 12,
+              "rowGap": 12,
+              "containerMarginTop": 12,
+              "containerMarginBottom": 12,
+              "containerMarginStart": 12,
+              "containerMarginEnd": 12
+             },
+             "columnMultiplier": 1,
+             "columnAdder": 0
+            },
+            {
+             "containerSize": "CONTAINER_SIZE_MEDIUM",
+             "containerType": "CONTAINER_TYPE_VERTICAL_LIST",
+             "maxWidth": 1023,
+             "minColumnSize": 310,
+             "minColumnCount": 1,
+             "maxColumnCount": 1,
+             "spacingConfiguration": {
+              "columnGap": 12,
+              "rowGap": 12,
+              "containerMarginTop": 16,
+              "containerMarginBottom": 16,
+              "containerMarginStart": 16,
+              "containerMarginEnd": 16
+             },
+             "columnMultiplier": 1,
+             "columnAdder": 0
+            },
+            {
+             "containerSize": "CONTAINER_SIZE_WIDE",
+             "containerType": "CONTAINER_TYPE_VERTICAL_LIST",
+             "maxWidth": 2047,
+             "minColumnSize": 310,
+             "minColumnCount": 1,
+             "maxColumnCount": 1,
+             "spacingConfiguration": {
+              "columnGap": 12,
+              "rowGap": 12,
+              "containerMarginTop": 16,
+              "containerMarginBottom": 16,
+              "containerMarginStart": 16,
+              "containerMarginEnd": 16
+             },
+             "columnMultiplier": 1,
+             "columnAdder": 0
+            }
+           ]
+          }
+         }
+        },
+        "webComponentHint": {
+         "componentVersion": "WEB_COMPONENT_VERSION_SHARED"
+        }
+       }
+      },
+      "tabIdentifier": "PL"
+     }
+    }
+   ]
+  }
+ }
+}

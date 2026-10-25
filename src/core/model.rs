@@ -22,6 +22,15 @@ pub struct Video {
     pub thumbnail_url: Option<String>,
 }
 
+/// A playlist as shown in lists (a channel's playlists).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Playlist {
+    pub id: String,
+    pub name: String,
+    pub thumbnail_url: Option<String>,
+    pub video_count: Option<u64>,
+}
+
 /// A watched video together with when it was last watched and where playback stopped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryEntry {

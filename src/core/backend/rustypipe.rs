@@ -2,14 +2,14 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use rustypipe::client::RustyPipe;
+use rustypipe::client::{ClientType, RustyPipe};
 use rustypipe::model::{self as rp, richtext::ToPlaintext};
 
-use super::{Backend, BackendError, Downloader, ProgressFn, Result, fetch, visionos};
+use super::{Backend, BackendError, Downloader, ProgressFn, Result, fetch, lockup, visionos};
 use crate::core::model::SegmentRanges;
 use crate::core::model::{
-    AudioStream, Channel, Comment, CommentPage, DownloadKind, SavedDownload, SearchItem, Streams,
-    SubtitleTrack, Video, VideoDetails, VideoStream,
+    AudioStream, Channel, Comment, CommentPage, DownloadKind, Playlist, SavedDownload, SearchItem,
+    Streams, SubtitleTrack, Video, VideoDetails, VideoStream,
 };
 use crate::core::streams::{self, DEFAULT_MAX_HEIGHT};
 use crate::core::subtitles::{self, Cue};
@@ -146,6 +146,18 @@ impl Backend for RustyPipeBackend {
         Ok((channel, videos))
     }
 
+    async fn channel_playlists(&self, channel_id: &str) -> Result<Vec<Playlist>> {
+        let json = self
+            .browse(&lockup::channel_playlists_request(channel_id))
+            .await?;
+        lockup::parse_playlists(&json)
+    }
+
+    async fn playlist_videos(&self, playlist_id: &str) -> Result<Vec<Video>> {
+        let json = self.browse(&lockup::playlist_request(playlist_id)).await?;
+        lockup::parse_videos(&json, Utc::now())
+    }
+
     async fn channel_feed(&self, channel_id: &str) -> Result<Vec<Video>> {
         let xml = self
             .http
@@ -177,6 +189,12 @@ impl Backend for RustyPipeBackend {
 }
 
 impl RustyPipeBackend {
+    /// The raw response to a browse request with `body`.
+    async fn browse(&self, body: &serde_json::Value) -> Result<String> {
+        let query = self.client.query();
+        Ok(query.raw(ClientType::Desktop, "browse", body).await?)
+    }
+
     /// Downloads `url` (of `size` bytes) to `path`.
     /// `size` if known, else the size the server reports for `url`.
     async fn known_size(&self, url: &str, size: Option<u64>) -> Result<u64> {
@@ -718,6 +736,24 @@ mod tests {
         assert!(
             videos.iter().any(|v| v.published.is_some()),
             "dates from RSS"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "needs network"]
+    async fn playlists_real_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let backend = RustyPipeBackend::new(dir.path()).unwrap();
+        let playlists = backend
+            .channel_playlists("UCsXVk37bltHxD1rDPwtNM8Q")
+            .await
+            .unwrap();
+        let playlist = playlists.first().expect("a playlist");
+        let videos = backend.playlist_videos(&playlist.id).await.unwrap();
+        assert!(!videos.is_empty());
+        assert!(
+            videos.iter().all(|v| !v.channel_id.is_empty()),
+            "{videos:?}"
         );
     }
 

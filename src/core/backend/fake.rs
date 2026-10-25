@@ -6,7 +6,8 @@ use async_trait::async_trait;
 
 use super::{Backend, BackendError, Downloader, ProgressFn, Result, saved_track};
 use crate::core::model::{
-    Channel, CommentPage, DownloadKind, SavedDownload, SearchItem, Streams, Video, VideoDetails,
+    Channel, CommentPage, DownloadKind, Playlist, SavedDownload, SearchItem, Streams, Video,
+    VideoDetails,
 };
 use crate::core::subtitles::Cue;
 use crate::core::{download, subtitles};
@@ -19,6 +20,10 @@ pub struct FakeBackend {
     pub streams: HashMap<String, Streams>,
     pub channels: HashMap<String, (Channel, Vec<Video>)>,
     pub feeds: HashMap<String, Vec<Video>>,
+    /// Playlists by channel id.
+    pub channel_playlists: HashMap<String, Vec<Playlist>>,
+    /// Videos by playlist id.
+    pub playlists: HashMap<String, Vec<Video>>,
     /// Comment pages by token.
     pub comments: HashMap<String, CommentPage>,
     /// Subtitle cues by URL.
@@ -43,6 +48,16 @@ impl FakeBackend {
 
     pub fn with_channel(mut self, channel: Channel, videos: Vec<Video>) -> Self {
         self.channels.insert(channel.id.clone(), (channel, videos));
+        self
+    }
+
+    pub fn with_channel_playlists(mut self, channel_id: &str, playlists: Vec<Playlist>) -> Self {
+        self.channel_playlists.insert(channel_id.into(), playlists);
+        self
+    }
+
+    pub fn with_playlist(mut self, playlist_id: &str, videos: Vec<Video>) -> Self {
+        self.playlists.insert(playlist_id.into(), videos);
         self
     }
 
@@ -84,6 +99,14 @@ impl Backend for FakeBackend {
 
     async fn channel(&self, channel_id: &str) -> Result<(Channel, Vec<Video>)> {
         lookup(&self.channels, channel_id)
+    }
+
+    async fn channel_playlists(&self, channel_id: &str) -> Result<Vec<Playlist>> {
+        lookup(&self.channel_playlists, channel_id)
+    }
+
+    async fn playlist_videos(&self, playlist_id: &str) -> Result<Vec<Video>> {
+        lookup(&self.playlists, playlist_id)
     }
 
     async fn channel_feed(&self, channel_id: &str) -> Result<Vec<Video>> {

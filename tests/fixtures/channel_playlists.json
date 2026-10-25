@@ -1,0 +1,538 @@
+{
+ "contents": {
+  "twoColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "endpoint": {
+       "browseEndpoint": {
+        "browseId": "UCBa659QWEk1AI4Tg--mrJ2A",
+        "params": "EglwbGF5bGlzdHPyBgoKCEIGCgIQaCIA",
+        "canonicalBaseUrl": "/@TomScottGo"
+       }
+      },
+      "title": "Playlists",
+      "selected": true,
+      "content": {
+       "sectionListRenderer": {
+        "contents": [
+         {
+          "itemSectionRenderer": {
+           "contents": [
+            {
+             "gridRenderer": {
+              "items": [
+               {
+                "lockupViewModel": {
+                 "contentImage": {
+                  "collectionThumbnailViewModel": {
+                   "primaryThumbnail": {
+                    "thumbnailViewModel": {
+                     "image": {
+                      "sources": [
+                       {
+                        "url": "https://i.ytimg.com/vi/GpaNijzRaJI/hqdefault.jpg?sqp=-oaymwEXCOADEI4CSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLB8Axc-SkI_LkCSYC9tOQP2OEPfHw",
+                        "width": 480,
+                        "height": 270
+                       }
+                      ]
+                     },
+                     "overlays": [
+                      {
+                       "thumbnailOverlayBadgeViewModel": {
+                        "thumbnailBadges": [
+                         {
+                          "thumbnailBadgeViewModel": {
+                           "icon": {
+                            "sources": [
+                             {
+                              "clientResource": {
+                               "imageName": "TV"
+                              }
+                             }
+                            ]
+                           },
+                           "text": "35 episodes",
+                           "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                          }
+                         }
+                        ],
+                        "position": "THUMBNAIL_OVERLAY_BADGE_POSITION_BOTTOM_END"
+                       }
+                      },
+                      {
+                       "thumbnailHoverOverlayViewModel": {
+                        "icon": {
+                         "sources": [
+                          {
+                           "clientResource": {
+                            "imageName": "PLAY_ALL"
+                           }
+                          }
+                         ]
+                        },
+                        "text": {
+                         "content": "Play all"
+                        },
+                        "style": "THUMBNAIL_HOVER_OVERLAY_STYLE_COVER"
+                       }
+                      }
+                     ]
+                    }
+                   }
+                  }
+                 },
+                 "metadata": {
+                  "lockupMetadataViewModel": {
+                   "title": {
+                    "content": "England"
+                   },
+                   "metadata": {
+                    "contentMetadataViewModel": {
+                     "metadataRows": [
+                      {
+                       "metadataParts": [
+                        {
+                         "text": {
+                          "content": "I helped break a 142-year-old bell, and that's okay."
+                         }
+                        }
+                       ]
+                      },
+                      {
+                       "metadataParts": [
+                        {
+                         "text": {
+                          "content": "View full playlist",
+                          "commandRuns": [
+                           {
+                            "startIndex": 0,
+                            "length": 18,
+                            "onTap": {
+                             "innertubeCommand": {
+                              "browseEndpoint": {
+                               "browseId": "VLPL96C35uN7xGIhE_SS9C4PT0RrhU2DVYR3"
+                              }
+                             }
+                            }
+                           }
+                          ]
+                         }
+                        }
+                       ]
+                      }
+                     ],
+                     "delimiter": " • "
+                    }
+                   }
+                  }
+                 },
+                 "contentId": "PL96C35uN7xGIhE_SS9C4PT0RrhU2DVYR3",
+                 "contentType": "LOCKUP_CONTENT_TYPE_SHOW",
+                 "itemPlayback": {
+                  "inlinePlayerData": {
+                   "onSelect": {
+                    "innertubeCommand": {
+                     "browseEndpoint": {
+                      "browseId": "VLPL96C35uN7xGIhE_SS9C4PT0RrhU2DVYR3",
+                      "params": "kgYPKgtHcGFOaWp6UmFKSUAB",
+                      "pageAnimation": {
+                       "preloadPageConfig": {
+                        "ghostState": "GHOST_STATE_EPISODIC_SHOW_PAGE"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   "onVisible": {
+                    "innertubeCommand": {
+                     "watchEndpoint": {
+                      "videoId": "GpaNijzRaJI",
+                      "playlistId": "PL96C35uN7xGIhE_SS9C4PT0RrhU2DVYR3",
+                      "playerParams": "YAHIAQHwBAD4BACiBhUBqHapMziZ7sAqRP5rtxa1lZbLI38%3D",
+                      "loggingContext": {
+                       "vssLoggingContext": {
+                        "serializedContextData": "GiJQTDk2QzM1dU43eEdJaEVfU1M5QzRQVDBScmhVMkRWWVIz"
+                       }
+                      },
+                      "watchEndpointSupportedOnesieConfig": {
+                       "html5PlaybackOnesieConfig": {
+                        "commonConfig": {
+                         "url": "https://rr5---sn-1giz7n7l.googlevideo.com/initplayback?source=youtube&oeis=1&c=WEB&oad=3200&ovd=3200&oaad=11000&oavd=11000&ocs=700&oewis=1&oputc=1&epbp=1&msp=1&odepv=1&id=1a968d8a3cd16892&ip=2a02%3A168%3Afb49%3A0%3A2e5c%3A5e82%3A430b%3Ae991&initcwndbps=4905500&mt=1792936423&oweuc="
+                        }
+                       }
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               },
+               {
+                "lockupViewModel": {
+                 "contentImage": {
+                  "collectionThumbnailViewModel": {
+                   "primaryThumbnail": {
+                    "thumbnailViewModel": {
+                     "image": {
+                      "sources": [
+                       {
+                        "url": "https://i.ytimg.com/vi/zV14G-Sxu7M/hqdefault.jpg?sqp=-oaymwEXCOADEI4CSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLCmy_yzDKhaFSVTAJvCUMe3Dt0U8Q",
+                        "width": 480,
+                        "height": 270
+                       }
+                      ]
+                     },
+                     "overlays": [
+                      {
+                       "thumbnailOverlayBadgeViewModel": {
+                        "thumbnailBadges": [
+                         {
+                          "thumbnailBadgeViewModel": {
+                           "icon": {
+                            "sources": [
+                             {
+                              "clientResource": {
+                               "imageName": "PLAYLISTS"
+                              }
+                             }
+                            ]
+                           },
+                           "text": "4 videos",
+                           "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                          }
+                         }
+                        ],
+                        "position": "THUMBNAIL_OVERLAY_BADGE_POSITION_BOTTOM_END"
+                       }
+                      },
+                      {
+                       "thumbnailHoverOverlayViewModel": {
+                        "icon": {
+                         "sources": [
+                          {
+                           "clientResource": {
+                            "imageName": "PLAY_ALL"
+                           }
+                          }
+                         ]
+                        },
+                        "text": {
+                         "content": "Play all"
+                        },
+                        "style": "THUMBNAIL_HOVER_OVERLAY_STYLE_COVER"
+                       }
+                      }
+                     ]
+                    }
+                   }
+                  }
+                 },
+                 "metadata": {
+                  "lockupMetadataViewModel": {
+                   "title": {
+                    "content": "📶 Disconnected"
+                   },
+                   "metadata": {
+                    "contentMetadataViewModel": {
+                     "metadataRows": [
+                      {
+                       "metadataParts": [
+                        {
+                         "text": {
+                          "content": "Playlist",
+                          "commandRuns": [
+                           {
+                            "startIndex": 0,
+                            "length": 8,
+                            "onTap": {
+                             "innertubeCommand": {
+                              "browseEndpoint": {
+                               "browseId": "UCBa659QWEk1AI4Tg--mrJ2A",
+                               "canonicalBaseUrl": "/@TomScottGo"
+                              }
+                             }
+                            }
+                           }
+                          ]
+                         }
+                        }
+                       ]
+                      },
+                      {
+                       "metadataParts": [
+                        {
+                         "text": {
+                          "content": "View full playlist",
+                          "commandRuns": [
+                           {
+                            "startIndex": 0,
+                            "length": 18,
+                            "onTap": {
+                             "innertubeCommand": {
+                              "browseEndpoint": {
+                               "browseId": "VLPL96C35uN7xGLr6zFFMabALFOFy6RnZhir"
+                              }
+                             }
+                            }
+                           }
+                          ]
+                         }
+                        }
+                       ]
+                      }
+                     ],
+                     "delimiter": " • "
+                    }
+                   }
+                  }
+                 },
+                 "contentId": "PL96C35uN7xGLr6zFFMabALFOFy6RnZhir",
+                 "contentType": "LOCKUP_CONTENT_TYPE_PLAYLIST",
+                 "itemPlayback": {
+                  "inlinePlayerData": {
+                   "onSelect": {
+                    "innertubeCommand": {
+                     "watchEndpoint": {
+                      "videoId": "zV14G-Sxu7M",
+                      "playlistId": "PL96C35uN7xGLr6zFFMabALFOFy6RnZhir",
+                      "params": "OAI%3D",
+                      "loggingContext": {
+                       "vssLoggingContext": {
+                        "serializedContextData": "GiJQTDk2QzM1dU43eEdMcjZ6RkZNYWJBTEZPRnk2Um5aaGly"
+                       }
+                      },
+                      "watchEndpointSupportedOnesieConfig": {
+                       "html5PlaybackOnesieConfig": {
+                        "commonConfig": {
+                         "url": "https://rr3---sn-ajh0j5-5x.googlevideo.com/initplayback?source=youtube&oeis=1&c=WEB&oad=3200&ovd=3200&oaad=11000&oavd=11000&ocs=700&oewis=1&oputc=1&epbp=1&msp=1&odepv=1&id=cd5d781be4b1bbb3&ip=2a02%3A168%3Afb49%3A0%3A2e5c%3A5e82%3A430b%3Ae991&initcwndbps=4176875&mt=1792936194&oweuc="
+                        }
+                       }
+                      }
+                     }
+                    }
+                   },
+                   "onVisible": {
+                    "innertubeCommand": {
+                     "watchEndpoint": {
+                      "videoId": "zV14G-Sxu7M",
+                      "playlistId": "PL96C35uN7xGLr6zFFMabALFOFy6RnZhir",
+                      "playerParams": "YAHIAQHwBAD4BACiBhUBqHapM2GUHODnT5axQe2XOIPTWP8%3D",
+                      "loggingContext": {
+                       "vssLoggingContext": {
+                        "serializedContextData": "GiJQTDk2QzM1dU43eEdMcjZ6RkZNYWJBTEZPRnk2Um5aaGly"
+                       }
+                      },
+                      "watchEndpointSupportedOnesieConfig": {
+                       "html5PlaybackOnesieConfig": {
+                        "commonConfig": {
+                         "url": "https://rr3---sn-ajh0j5-5x.googlevideo.com/initplayback?source=youtube&oeis=1&c=WEB&oad=3200&ovd=3200&oaad=11000&oavd=11000&ocs=700&oewis=1&oputc=1&epbp=1&msp=1&odepv=1&id=cd5d781be4b1bbb3&ip=2a02%3A168%3Afb49%3A0%3A2e5c%3A5e82%3A430b%3Ae991&initcwndbps=4176875&mt=1792936194&oweuc="
+                        }
+                       }
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               },
+               {
+                "lockupViewModel": {
+                 "contentImage": {
+                  "collectionThumbnailViewModel": {
+                   "primaryThumbnail": {
+                    "thumbnailViewModel": {
+                     "image": {
+                      "sources": [
+                       {
+                        "url": "https://i.ytimg.com/vi/tO8aJ-TUtJY/hqdefault.jpg?sqp=-oaymwEXCOADEI4CSFryq4qpAwkIARUAAIhCGAE=&rs=AOn4CLDJO51QrXQSG3AOrccu-BbU1oTHrw",
+                        "width": 480,
+                        "height": 270
+                       }
+                      ]
+                     },
+                     "overlays": [
+                      {
+                       "thumbnailOverlayBadgeViewModel": {
+                        "thumbnailBadges": [
+                         {
+                          "thumbnailBadgeViewModel": {
+                           "icon": {
+                            "sources": [
+                             {
+                              "clientResource": {
+                               "imageName": "GRADUATION_CAP"
+                              }
+                             }
+                            ]
+                           },
+                           "text": "16 lessons",
+                           "badgeStyle": "THUMBNAIL_OVERLAY_BADGE_STYLE_DEFAULT"
+                          }
+                         }
+                        ],
+                        "position": "THUMBNAIL_OVERLAY_BADGE_POSITION_BOTTOM_END"
+                       }
+                      },
+                      {
+                       "thumbnailHoverOverlayViewModel": {
+                        "icon": {
+                         "sources": [
+                          {
+                           "clientResource": {
+                            "imageName": "PLAY_ALL"
+                           }
+                          }
+                         ]
+                        },
+                        "text": {
+                         "content": "Play all"
+                        },
+                        "style": "THUMBNAIL_HOVER_OVERLAY_STYLE_COVER"
+                       }
+                      }
+                     ]
+                    }
+                   }
+                  }
+                 },
+                 "metadata": {
+                  "lockupMetadataViewModel": {
+                   "title": {
+                    "content": "How To Build An App: Everything You Didn't Know You Needed To Know"
+                   },
+                   "metadata": {
+                    "contentMetadataViewModel": {
+                     "metadataRows": [
+                      {
+                       "metadataParts": [
+                        {
+                         "text": {
+                          "content": "Playlist",
+                          "commandRuns": [
+                           {
+                            "startIndex": 0,
+                            "length": 8,
+                            "onTap": {
+                             "innertubeCommand": {
+                              "browseEndpoint": {
+                               "browseId": "UCBa659QWEk1AI4Tg--mrJ2A",
+                               "canonicalBaseUrl": "/@TomScottGo"
+                              }
+                             }
+                            }
+                           }
+                          ]
+                         }
+                        }
+                       ]
+                      },
+                      {
+                       "metadataParts": [
+                        {
+                         "text": {
+                          "content": "View full playlist",
+                          "commandRuns": [
+                           {
+                            "startIndex": 0,
+                            "length": 18,
+                            "onTap": {
+                             "innertubeCommand": {
+                              "browseEndpoint": {
+                               "browseId": "VLPL96C35uN7xGJu6skU4TBYrIWxggkZBrF5"
+                              }
+                             }
+                            }
+                           }
+                          ]
+                         }
+                        }
+                       ]
+                      }
+                     ],
+                     "delimiter": " • "
+                    }
+                   }
+                  }
+                 },
+                 "contentId": "PL96C35uN7xGJu6skU4TBYrIWxggkZBrF5",
+                 "contentType": "LOCKUP_CONTENT_TYPE_COURSE",
+                 "itemPlayback": {
+                  "inlinePlayerData": {
+                   "onSelect": {
+                    "innertubeCommand": {
+                     "watchEndpoint": {
+                      "videoId": "tO8aJ-TUtJY",
+                      "playlistId": "PL96C35uN7xGJu6skU4TBYrIWxggkZBrF5",
+                      "params": "OAI%3D",
+                      "loggingContext": {
+                       "vssLoggingContext": {
+                        "serializedContextData": "GiJQTDk2QzM1dU43eEdKdTZza1U0VEJZcklXeGdna1pCckY1"
+                       }
+                      },
+                      "watchEndpointSupportedOnesieConfig": {
+                       "html5PlaybackOnesieConfig": {
+                        "commonConfig": {
+                         "url": "https://rr1---sn-ajh0j5-5c.googlevideo.com/initplayback?source=youtube&oeis=1&c=WEB&oad=3200&ovd=3200&oaad=11000&oavd=11000&ocs=700&oewis=1&oputc=1&epbp=1&msp=1&odepv=1&id=b4ef1a27e4d4b496&ip=2a02%3A168%3Afb49%3A0%3A2e5c%3A5e82%3A430b%3Ae991&initcwndbps=4176875&mt=1792936194&oweuc="
+                        }
+                       }
+                      }
+                     }
+                    }
+                   },
+                   "onVisible": {
+                    "innertubeCommand": {
+                     "watchEndpoint": {
+                      "videoId": "tO8aJ-TUtJY",
+                      "playlistId": "PL96C35uN7xGJu6skU4TBYrIWxggkZBrF5",
+                      "playerParams": "YAHIAQHwBAD4BACiBhUBqHapM0jfBJ0vvQ-0GmnfebGX0Ow%3D",
+                      "loggingContext": {
+                       "vssLoggingContext": {
+                        "serializedContextData": "GiJQTDk2QzM1dU43eEdKdTZza1U0VEJZcklXeGdna1pCckY1"
+                       }
+                      },
+                      "watchEndpointSupportedOnesieConfig": {
+                       "html5PlaybackOnesieConfig": {
+                        "commonConfig": {
+                         "url": "https://rr1---sn-ajh0j5-5c.googlevideo.com/initplayback?source=youtube&oeis=1&c=WEB&oad=3200&ovd=3200&oaad=11000&oavd=11000&ocs=700&oewis=1&oputc=1&epbp=1&msp=1&odepv=1&id=b4ef1a27e4d4b496&ip=2a02%3A168%3Afb49%3A0%3A2e5c%3A5e82%3A430b%3Ae991&initcwndbps=4176875&mt=1792936194&oweuc="
+                        }
+                       }
+                      }
+                     }
+                    }
+                   }
+                  }
+                 }
+                }
+               },
+               {
+                "continuationItemRenderer": {
+                 "trigger": "CONTINUATION_TRIGGER_ON_ITEM_SHOWN",
+                 "continuationEndpoint": {
+                  "continuationCommand": {
+                   "token": "4qmFsgJ4EhhVQ0JhNjU5UVdFazFBSTRUZy0tbXJKMkEaKkVnbHdiR0Y1YkdsemRITVlBeUFBTUFFNEFlb0RCME5uVGtSUmFsRSUzRJoCL2Jyb3dzZS1mZWVkVUNCYTY1OVFXRWsxQUk0VGctLW1ySjJBcGxheWxpc3RzMTA0",
+                   "request": "CONTINUATION_REQUEST_TYPE_BROWSE"
+                  }
+                 }
+                }
+               }
+              ],
+              "targetId": "browse-feedUCBa659QWEk1AI4Tg--mrJ2Aplaylists104"
+             }
+            }
+           ]
+          }
+         }
+        ],
+        "targetId": "browse-feedUCBa659QWEk1AI4Tg--mrJ2Aplaylists",
+        "disablePullToRefresh": true
+       }
+      }
+     }
+    }
+   ]
+  }
+ }
+}

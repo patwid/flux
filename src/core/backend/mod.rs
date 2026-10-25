@@ -2,6 +2,7 @@
 
 pub mod fake;
 pub mod fetch;
+pub mod lockup;
 pub mod rustypipe;
 pub mod visionos;
 
@@ -9,8 +10,8 @@ use async_trait::async_trait;
 
 use super::feed;
 use super::model::{
-    Channel, CommentPage, DownloadKind, SavedDownload, SearchItem, Streams, SubtitleTrack, Video,
-    VideoDetails,
+    Channel, CommentPage, DownloadKind, Playlist, SavedDownload, SearchItem, Streams,
+    SubtitleTrack, Video, VideoDetails,
 };
 use super::subtitles::Cue;
 
@@ -39,6 +40,10 @@ pub trait Backend: Send + Sync {
     async fn streams(&self, video_id: &str) -> Result<Streams>;
     /// A channel with its latest uploads.
     async fn channel(&self, channel_id: &str) -> Result<(Channel, Vec<Video>)>;
+    /// The playlists of a channel.
+    async fn channel_playlists(&self, channel_id: &str) -> Result<Vec<Playlist>>;
+    /// The videos of a playlist.
+    async fn playlist_videos(&self, playlist_id: &str) -> Result<Vec<Video>>;
     /// The latest uploads of a channel from its RSS feed.
     async fn channel_feed(&self, channel_id: &str) -> Result<Vec<Video>>;
     /// The page of comments behind `token` (see [`CommentPage::next`]).
