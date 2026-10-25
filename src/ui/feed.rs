@@ -27,6 +27,9 @@ pub struct State {
     pub errors: Vec<(String, String)>,
     channel_ids: Vec<String>,
     loaded: bool,
+    /// The subscriptions changed during a refresh, which fetched the old
+    /// ones: refresh again when it finishes.
+    refresh_again: bool,
 }
 
 #[derive(Debug)]
@@ -67,6 +70,9 @@ impl State {
                 let added = channel_ids.iter().any(|id| !self.channel_ids.contains(id));
                 let first_load = !self.loaded;
                 self.loaded = true;
+                if self.refreshing && channel_ids != self.channel_ids {
+                    self.refresh_again = true;
+                }
                 self.videos = videos;
                 self.channel_ids = channel_ids;
                 if needs_refresh(refreshed_at, now) || (added && !first_load) {
@@ -84,7 +90,11 @@ impl State {
                     .collect();
                 self.videos = feed::aggregate([refresh.videos, kept]);
                 self.errors = refresh.errors;
-                return vec![Effect::Store(self.videos.clone())];
+                let mut effects = vec![Effect::Store(self.videos.clone())];
+                if std::mem::take(&mut self.refresh_again) {
+                    effects.extend(self.refresh());
+                }
+                return effects;
             }
             Msg::Activate(index) => {
                 if let Some(video) = self.videos.get(index) {
@@ -395,6 +405,32 @@ mod tests {
             load(&mut state, mins_ago(5), &["A"]),
             [Effect::Refresh(ids(&["A"]))]
         );
+    }
+
+    #[test]
+    fn subscription_changed_during_refresh_refreshes_again() {
+        let mut state = State::default();
+        load(&mut state, None, &["A"]);
+        assert!(load(&mut state, mins_ago(5), &["A", "B"]).is_empty());
+
+        let effects = state.update(Msg::Refreshed(FeedRefresh {
+            videos: vec![video("a1", "A", 2)],
+            errors: vec![],
+        }));
+
+        assert_eq!(
+            effects,
+            [
+                Effect::Store(vec![video("a1", "A", 2)]),
+                Effect::Refresh(ids(&["A", "B"]))
+            ]
+        );
+        assert!(state.refreshing);
+        let effects = state.update(Msg::Refreshed(FeedRefresh {
+            videos: vec![video("b1", "B", 3), video("a1", "A", 2)],
+            errors: vec![],
+        }));
+        assert_eq!(effects.len(), 1, "only once");
     }
 
     #[test]
