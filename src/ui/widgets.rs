@@ -4,6 +4,7 @@ use relm4::adw::prelude::*;
 use relm4::gtk::gio;
 use relm4::{adw, gtk};
 
+use super::video_row_layout::{ThumbnailLayout, VideoRowLayout};
 use super::{format, images};
 use crate::core::model::{Channel, Playlist, Video};
 
@@ -16,7 +17,18 @@ pub fn video_row(video: &Video) -> adw::ActionRow {
         .title(&video.title)
         .subtitle(format::video_subtitle(video, chrono::Utc::now()))
         .build();
-    row.add_prefix(&thumbnail(video.thumbnail_url.as_deref()));
+    let thumbnail = thumbnail(video.thumbnail_url.as_deref());
+    row.add_prefix(&thumbnail);
+    // On narrow rows, the thumbnail spans the row above the title. This
+    // relies on the row's child being its header, with the prefixes first.
+    if let Some(header) = row.child() {
+        header.set_layout_manager(Some(VideoRowLayout::default()));
+        if let Some(prefixes) = header.first_child() {
+            // The thumbnail fills the prefixes, which only grow when stacked.
+            prefixes.set_hexpand(false);
+            thumbnail.set_hexpand(true);
+        }
+    }
     row
 }
 
@@ -39,35 +51,27 @@ pub fn with_chevron(row: adw::ActionRow) -> adw::ActionRow {
     row
 }
 
-/// Size of the thumbnails in list rows, 16:9.
-const THUMBNAIL_SIZE: (i32, i32) = (160, 90);
+/// Width of the thumbnails in list rows.
+const THUMBNAIL_WIDTH: i32 = 160;
 
 /// A 16:9 thumbnail for list rows, loaded asynchronously.
 pub fn thumbnail(url: Option<&str>) -> gtk::Widget {
-    let (width, height) = THUMBNAIL_SIZE;
     let picture = gtk::Picture::builder()
         .content_fit(gtk::ContentFit::Cover)
         .can_shrink(true)
-        .width_request(width)
-        .height_request(height)
+        .build();
+    images::set_picture(&picture, url);
+    // Sized by the layout rather than by the image, whose natural size is
+    // taller than 16:9 for the feed's 4:3 thumbnails and for shorts.
+    let thumbnail = gtk::Box::builder()
+        .layout_manager(&ThumbnailLayout::default())
+        .width_request(THUMBNAIL_WIDTH)
+        .valign(gtk::Align::Center)
         .css_classes(["thumbnail"])
         .overflow(gtk::Overflow::Hidden)
         .build();
-    images::set_picture(&picture, url);
-    // The picture would otherwise request the image's natural size, which
-    // is taller than 16:9 for the feed's 4:3 thumbnails and for shorts.
-    let clamp = |orientation, size, child: &gtk::Widget| {
-        adw::Clamp::builder()
-            .orientation(orientation)
-            .maximum_size(size)
-            .tightening_threshold(size)
-            .valign(gtk::Align::Center)
-            .child(child)
-            .build()
-            .upcast::<gtk::Widget>()
-    };
-    let column = clamp(gtk::Orientation::Vertical, height, picture.upcast_ref());
-    clamp(gtk::Orientation::Horizontal, width, &column)
+    thumbnail.append(&picture);
+    thumbnail.upcast()
 }
 
 /// A channel avatar with initials until the image is loaded.
