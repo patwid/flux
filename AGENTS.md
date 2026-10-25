@@ -105,8 +105,9 @@ src/
   breakpoint applies at a time, so the narrow one repeats the 800sp one's setters.
 - Touch-friendly: list rows have adequate hit targets, and nothing depends on hover.
 - Video rows (search, feed, history, downloads, channels, playlists, related videos) and
-  playlist rows (channels, library) show the thumbnail beside the title. Rows narrower than 450px stack a full-width thumbnail above the
-  title instead, decided by each row's own width rather than by a window breakpoint.
+  playlist rows (channels, library) show a 320px wide thumbnail beside the title. Rows narrower
+  than 600px stack a full-width thumbnail above the title instead, decided by each row's own
+  width rather than by a window breakpoint.
 - Video page: when the page is under 700sp wide, or fullscreen, the player is fixed above the scrolled details.
   On wider pages, the player scrolls with the details inside a clamp. An `AdwMultiLayoutView` with the
   layouts `narrow`, `wide` and `fullscreen` places the player. Below the description, an

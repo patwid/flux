@@ -9,7 +9,7 @@ use relm4::gtk::subclass::prelude::*;
 use super::aspect::RATIO;
 
 /// Rows whose content is narrower than this stack the thumbnail above the text.
-const STACK_BELOW_WIDTH: i32 = 450;
+const STACK_BELOW_WIDTH: i32 = 600;
 /// Space between a stacked thumbnail and the text below it.
 const STACK_SPACING: i32 = 6;
 /// Space above a stacked thumbnail, matching the row's side margins.
@@ -251,13 +251,13 @@ mod tests {
 
     #[test]
     fn narrow_rows_stack() {
-        assert!(stacks(320, 200));
-        assert!(!stacks(600, 200));
+        assert!(stacks(500, 200));
+        assert!(!stacks(700, 200));
     }
 
     #[test]
     fn rows_too_narrow_for_side_by_side_stack() {
-        assert!(stacks(600, 700));
+        assert!(stacks(700, 800));
     }
 
     /// Needs a display: `xvfb-run cargo test -- --ignored rows_lay_out`.
