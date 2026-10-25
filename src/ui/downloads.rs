@@ -240,7 +240,14 @@ impl DownloadsPage {
                 }
                 log_db_error(db.remove_download(id));
                 // The file may not exist yet (queued) or anymore.
-                let _ = std::fs::remove_file(path);
+                let _ = std::fs::remove_file(&path);
+                // Parts of an unfinished download, kept for resuming it.
+                let parts = path.parent().and_then(|dir| std::fs::read_dir(dir).ok());
+                for file in parts.into_iter().flatten().flatten() {
+                    if download::is_part_of(&path, &file.path()) {
+                        let _ = std::fs::remove_file(file.path());
+                    }
+                }
             }
         }
     }

@@ -67,7 +67,7 @@ impl From<std::io::Error> for Failure {
 }
 
 /// Downloads `url` (of `size` bytes) to `path` in ranges of `options.chunk`
-/// bytes. A failed request is retried from the last byte received, waiting
+/// bytes, continuing after the bytes already in `path`. A failed request is retried from the last byte received, waiting
 /// as `options.retry` says; the retries start over once bytes arrive again.
 pub async fn fetch(
     http: &reqwest::Client,
@@ -77,8 +77,17 @@ pub async fn fetch(
     options: &Options,
     on_bytes: &mut impl FnMut(u64),
 ) -> Result<()> {
-    let mut file = tokio::fs::File::create(path).await?;
-    let mut offset = 0;
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .await?;
+    let mut offset = file.metadata().await?.len();
+    if offset > size {
+        file.set_len(0).await?;
+        offset = 0;
+    }
+    on_bytes(offset);
     let mut retry = 0;
     while let Some(range) = download::next_range(offset, size, options.chunk) {
         let before = offset;
@@ -258,9 +267,21 @@ mod tests {
     /// Fetches the fake stream with `script` and `retries`, returning the
     /// result, the file and the bytes reported.
     async fn run(script: Vec<Reply>, retries: u32) -> (Result<()>, Vec<u8>, u64, Vec<(u64, u64)>) {
+        resume(&[], script, retries).await
+    }
+
+    /// Like [`run`], with the file already holding `part`.
+    async fn resume(
+        part: &[u8],
+        script: Vec<Reply>,
+        retries: u32,
+    ) -> (Result<()>, Vec<u8>, u64, Vec<(u64, u64)>) {
         let (url, requests) = serve(data(), script).await;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("stream.part");
+        if !part.is_empty() {
+            std::fs::write(&path, part).unwrap();
+        }
         let mut reported = 0;
         let result = fetch(
             &client(),
@@ -336,6 +357,32 @@ mod tests {
         let (result, file, _, _) = run(script, 1).await;
         result.unwrap();
         assert_eq!(file, data());
+    }
+
+    #[tokio::test]
+    async fn resumes_a_partial_file() {
+        let (result, file, reported, requests) = resume(&data()[..13], vec![], 0).await;
+        result.unwrap();
+        assert_eq!(file, data());
+        assert_eq!(reported, 25, "the resumed bytes count as progress");
+        assert_eq!(requests, [(13, 22), (23, 24)]);
+    }
+
+    #[tokio::test]
+    async fn complete_files_are_not_fetched_again() {
+        let (result, file, _, requests) = resume(&data(), vec![], 0).await;
+        result.unwrap();
+        assert_eq!(file, data());
+        assert!(requests.is_empty());
+    }
+
+    #[tokio::test]
+    async fn restarts_files_longer_than_the_stream() {
+        let (result, file, reported, requests) = resume(&[7; 30], vec![], 0).await;
+        result.unwrap();
+        assert_eq!(file, data());
+        assert_eq!(reported, 25);
+        assert_eq!(requests[0], (0, 9));
     }
 
     #[tokio::test]

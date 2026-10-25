@@ -170,6 +170,32 @@ pub fn download_path(dir: &Path, video: &Video, kind: DownloadKind) -> PathBuf {
     dir.join(format!("{}.{ext}", file_stem(video)))
 }
 
+/// Where to keep the `stream` (`video` or `audio`) of `size` bytes while
+/// downloading to `output`. The size tells streams of other formats apart,
+/// so that a retry only resumes the same stream.
+pub fn part_path(output: &Path, stream: &str, size: u64) -> PathBuf {
+    output.with_extension(format!("{stream}-{size}.part"))
+}
+
+/// Whether `file` is a part file (see [`part_path`]) of a download to `path`,
+/// whatever its extension.
+pub fn is_part_of(path: &Path, file: &Path) -> bool {
+    let (Some(stem), Some(name)) = (path.file_stem(), file.file_name()) else {
+        return false;
+    };
+    let rest = name
+        .to_str()
+        .zip(stem.to_str())
+        .and_then(|(name, stem)| name.strip_prefix(stem)?.strip_prefix('.'))
+        .and_then(|rest| rest.strip_suffix(".part"));
+    let size = rest.and_then(|rest| {
+        rest.strip_prefix("video-")
+            .or_else(|| rest.strip_prefix("audio-"))
+    });
+    file.parent() == path.parent()
+        && size.is_some_and(|size| !size.is_empty() && size.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// Where to save `tracks` next to the video at `video`, named like
 /// `<video stem>.<lang>[.auto].vtt` so that other players find them too.
 pub fn subtitle_paths(video: &Path, tracks: &[SubtitleTrack]) -> Vec<PathBuf> {
@@ -418,6 +444,28 @@ mod tests {
             .unwrap()
             .status
             .clone()
+    }
+
+    #[test]
+    fn part_files_are_named_by_stream_and_size() {
+        let output = Path::new("/d/A b.c [x].mkv");
+        let part = part_path(output, "video", 1234);
+        assert_eq!(part, Path::new("/d/A b.c [x].video-1234.part"));
+
+        let download = Path::new("/d/A b.c [x].mp4");
+        assert!(is_part_of(download, &part));
+        assert!(is_part_of(download, &part_path(output, "audio", 5)));
+        for other in [
+            "/d/A b.c [x].mp4",
+            "/d/A b.c [x].en.vtt",
+            "/d/A b.c [x].video-.part",
+            "/d/A b.c [x].other-12.part",
+            "/d/A b.c [x] 2.video-12.part",
+            "/d/A b.c [x].x.video-12.part",
+            "/e/A b.c [x].video-12.part",
+        ] {
+            assert!(!is_part_of(download, Path::new(other)), "{other}");
+        }
     }
 
     #[test]

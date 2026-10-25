@@ -204,7 +204,9 @@ impl Downloader for RustyPipeBackend {
         let plan = download::plan(&streams, kind, DEFAULT_MAX_HEIGHT)
             .ok_or_else(|| BackendError::Other("no downloadable stream".into()))?;
         let output = path.with_extension(plan.extension);
-        let part = |name: &str| output.with_extension(format!("{name}.part"));
+        // The sizes are known: `total` below fails otherwise.
+        let part =
+            |name, size: Option<u64>| download::part_path(&output, name, size.unwrap_or_default());
 
         let mut sizes = Vec::new();
         if let Some(video) = &plan.video {
@@ -228,21 +230,19 @@ impl Downloader for RustyPipeBackend {
 
         match &plan.video {
             Some(video) => {
-                let (video_part, audio_part) = (part("video"), part("audio"));
-                let fetched = async {
-                    self.fetch(&video.url, video.size, &video_part, &mut on_bytes)
-                        .await?;
-                    self.fetch(&plan.audio.url, plan.audio.size, &audio_part, &mut on_bytes)
-                        .await?;
-                    mux(&video_part, &audio_part, &output).await
-                }
-                .await;
+                // Failed downloads keep their parts, so that a retry resumes them.
+                let video_part = part("video", video.size);
+                let audio_part = part("audio", plan.audio.size);
+                self.fetch(&video.url, video.size, &video_part, &mut on_bytes)
+                    .await?;
+                self.fetch(&plan.audio.url, plan.audio.size, &audio_part, &mut on_bytes)
+                    .await?;
+                mux(&video_part, &audio_part, &output).await?;
                 let _ = tokio::fs::remove_file(&video_part).await;
                 let _ = tokio::fs::remove_file(&audio_part).await;
-                fetched?;
             }
             None => {
-                let audio_part = part("audio");
+                let audio_part = part("audio", plan.audio.size);
                 self.fetch(&plan.audio.url, plan.audio.size, &audio_part, &mut on_bytes)
                     .await?;
                 tokio::fs::rename(&audio_part, &output).await?;
