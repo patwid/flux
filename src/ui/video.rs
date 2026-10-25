@@ -245,9 +245,9 @@ impl State {
                     }
                     return effects;
                 }
-                None => self.playback = Load::Failed("No playable stream found".into()),
+                None => return self.fail("No playable stream found".into()),
             },
-            Msg::Streams(Err(e)) => self.playback = Load::Failed(e),
+            Msg::Streams(Err(e)) => return self.fail(e),
             Msg::PlaybackFailed {
                 error,
                 position,
@@ -394,8 +394,7 @@ impl State {
     /// have expired. Gives up after [`MAX_RECOVERIES`] errors in a row.
     fn recover(&mut self, error: String, position: u32, playing: bool) -> Vec<Effect> {
         if self.recoveries >= MAX_RECOVERIES {
-            self.playback = Load::Failed(error.clone());
-            return vec![Effect::PlaybackFailed(error)];
+            return self.fail(error);
         }
         self.recoveries += 1;
         self.failed_at = Some(position);
@@ -408,6 +407,12 @@ impl State {
         }
         self.playback = Load::Loading;
         vec![Effect::LoadStreams(self.video.id.clone())]
+    }
+
+    /// Shows that the video cannot be played.
+    fn fail(&mut self, error: String) -> Vec<Effect> {
+        self.playback = Load::Failed(error.clone());
+        vec![Effect::PlaybackFailed(error)]
     }
 
     fn play(&mut self, source: PlaybackSource) -> Vec<Effect> {
@@ -721,7 +726,6 @@ impl Component for VideoPage {
         match msg {
             PageMsg::State(msg) => {
                 let details = matches!(msg, Msg::Details(_));
-                let streams = matches!(msg, Msg::Streams(_));
                 let comments = matches!(
                     msg,
                     Msg::Comments(_) | Msg::ShowComments | Msg::MoreComments
@@ -737,9 +741,6 @@ impl Component for VideoPage {
                 }
                 if details {
                     self.select_tab(widgets);
-                }
-                if streams && let Load::Failed(e) = &self.state.playback {
-                    self.player.emit(player_view::Msg::Fail(e.clone()));
                 }
             }
             PageMsg::Narrow(narrow) => {
@@ -1308,14 +1309,17 @@ mod tests {
     #[test]
     fn unplayable_streams_fail() {
         let (mut state, _) = State::new(init());
-        assert!(
-            state
-                .update(Msg::Streams(Ok(Streams::default())))
-                .is_empty()
+        let none = "No playable stream found".to_owned();
+        assert_eq!(
+            state.update(Msg::Streams(Ok(Streams::default()))),
+            [Effect::PlaybackFailed(none.clone())]
         );
-        assert!(matches!(state.playback, Load::Failed(_)));
+        assert_eq!(state.playback, Load::Failed(none));
 
-        state.update(Msg::Streams(Err("blocked".into())));
+        assert_eq!(
+            state.update(Msg::Streams(Err("blocked".into()))),
+            [Effect::PlaybackFailed("blocked".into())]
+        );
         assert_eq!(state.playback, Load::Failed("blocked".into()));
     }
 
