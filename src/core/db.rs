@@ -6,7 +6,7 @@ use chrono::{DateTime, Utc};
 use std::path::Path;
 
 use super::model::{
-    Channel, Download, DownloadKind, DownloadStatus, HistoryEntry, SubtitleTrack, Video,
+    Channel, Download, DownloadKind, DownloadStatus, HistoryEntry, Playlist, SubtitleTrack, Video,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -27,10 +27,11 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("../../migrations/003_downloads.sql")),
         M::up(include_str!("../../migrations/004_feed.sql")),
         M::up(include_str!("../../migrations/005_download_subtitles.sql")),
+        M::up(include_str!("../../migrations/006_saved_playlists.sql")),
     ])
 }
 
-/// Persistent storage for subscriptions, history and downloads.
+/// Persistent storage for subscriptions, saved playlists, history and downloads.
 pub struct Db {
     conn: Connection,
 }
@@ -86,6 +87,56 @@ impl Db {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 avatar_url: row.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Saves `playlist`, or updates it if it is already saved.
+    pub fn save_playlist(&self, playlist: &Playlist) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO saved_playlists (playlist_id, name, thumbnail_url, video_count)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (playlist_id) DO UPDATE SET name = excluded.name,
+                 thumbnail_url = excluded.thumbnail_url, video_count = excluded.video_count",
+            (
+                &playlist.id,
+                &playlist.name,
+                &playlist.thumbnail_url,
+                playlist.video_count.map(|n| n as i64),
+            ),
+        )?;
+        Ok(())
+    }
+
+    pub fn unsave_playlist(&self, playlist_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM saved_playlists WHERE playlist_id = ?1",
+            [playlist_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn is_playlist_saved(&self, playlist_id: &str) -> Result<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM saved_playlists WHERE playlist_id = ?1)",
+            [playlist_id],
+            |row| row.get(0),
+        )?)
+    }
+
+    /// All saved playlists, ordered by name (case-insensitive).
+    pub fn saved_playlists(&self) -> Result<Vec<Playlist>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT playlist_id, name, thumbnail_url, video_count FROM saved_playlists
+             ORDER BY name COLLATE NOCASE",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(Playlist {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                thumbnail_url: row.get(2)?,
+                video_count: row.get::<_, Option<i64>>(3)?.map(|n| n as u64),
             })
         })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -488,6 +539,52 @@ mod tests {
 
         assert!(db.subscriptions().unwrap().is_empty());
         assert!(!db.is_subscribed("UC1").unwrap());
+    }
+
+    fn playlist(id: &str, name: &str) -> Playlist {
+        Playlist {
+            id: id.into(),
+            name: name.into(),
+            thumbnail_url: Some(format!("https://example.com/{id}.jpg")),
+            video_count: Some(3),
+        }
+    }
+
+    #[test]
+    fn save_playlists_and_list_sorted_by_name() {
+        let db = Db::open_in_memory().unwrap();
+        db.save_playlist(&playlist("PL2", "zebra")).unwrap();
+        db.save_playlist(&playlist("PL1", "Alpha")).unwrap();
+
+        assert_eq!(
+            db.saved_playlists().unwrap(),
+            [playlist("PL1", "Alpha"), playlist("PL2", "zebra")]
+        );
+        assert!(db.is_playlist_saved("PL1").unwrap());
+        assert!(!db.is_playlist_saved("PL3").unwrap());
+    }
+
+    #[test]
+    fn saving_a_playlist_twice_updates_it() {
+        let db = Db::open_in_memory().unwrap();
+        db.save_playlist(&playlist("PL1", "Old")).unwrap();
+        let renamed = Playlist {
+            video_count: None,
+            ..playlist("PL1", "New")
+        };
+        db.save_playlist(&renamed).unwrap();
+
+        assert_eq!(db.saved_playlists().unwrap(), [renamed]);
+    }
+
+    #[test]
+    fn unsaving_removes_a_playlist() {
+        let db = Db::open_in_memory().unwrap();
+        db.save_playlist(&playlist("PL1", "A")).unwrap();
+        db.unsave_playlist("PL1").unwrap();
+
+        assert!(db.saved_playlists().unwrap().is_empty());
+        assert!(!db.is_playlist_saved("PL1").unwrap());
     }
 
     fn video(id: &str) -> Video {
