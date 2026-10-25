@@ -102,7 +102,7 @@ pub enum Msg {
     Subtitles(usize, Result<Vec<Cue>, String>),
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum Effect {
     LoadDetails(String),
     LoadStreams(String),
@@ -1352,6 +1352,7 @@ mod tests {
             start: std::time::Duration::ZERO,
             end: std::time::Duration::from_secs(1),
             text: "Hi".into(),
+            placement: Default::default(),
         }]
     }
 

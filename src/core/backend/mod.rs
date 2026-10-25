@@ -149,6 +149,7 @@ mod tests {
             start: std::time::Duration::ZERO,
             end: std::time::Duration::from_secs(1),
             text: text.into(),
+            placement: Default::default(),
         };
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("a.en.vtt");

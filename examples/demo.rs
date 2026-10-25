@@ -87,6 +87,7 @@ fn subtitle_cues(prefix: &str) -> Vec<Cue> {
             } else {
                 format!("{prefix} {i}")
             },
+            placement: Default::default(),
         })
         .collect()
 }

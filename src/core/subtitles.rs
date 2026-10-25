@@ -5,11 +5,129 @@ use std::time::Duration;
 use super::model::SubtitleTrack;
 
 /// A piece of subtitle text shown from `start` until `end`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Cue {
     pub start: Duration,
     pub end: Duration,
     pub text: String,
+    pub placement: Placement,
+}
+
+/// Where a cue is shown, from its WebVTT cue settings. The default shows
+/// it centered at the bottom.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Placement {
+    /// `line`: the vertical position.
+    pub line: Line,
+    /// The edge of the cue at a [`Line::Percent`].
+    pub line_align: Anchor,
+    /// `position`: the horizontal anchor in percent of the width; derived
+    /// from `align` when `None`.
+    pub position: Option<f64>,
+    /// The edge of the cue at `position`; derived from `align` when `None`.
+    pub position_align: Option<Anchor>,
+    /// `size`: the width of the cue box in percent; 100 when `None`.
+    pub size: Option<f64>,
+    /// `align`: the alignment of the text in the cue box.
+    pub align: Align,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum Line {
+    /// The last line, as for `Number(-1)`.
+    #[default]
+    Auto,
+    /// A line counted from the top from 0, or from the bottom from -1.
+    Number(i32),
+    /// Percent of the height.
+    Percent(f64),
+}
+
+/// An edge or the center of a cue: top, center or bottom for a line;
+/// left, center or right for a position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Anchor {
+    #[default]
+    Start,
+    Center,
+    End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Align {
+    Start,
+    #[default]
+    Center,
+    End,
+    Left,
+    Right,
+}
+
+/// The horizontal alignment of text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
+
+/// A cue's box, resolved from its [`Placement`] for left-to-right text,
+/// with horizontal values as fractions of the video width.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CueBox {
+    pub left: f64,
+    pub width: f64,
+    pub align: TextAlign,
+    pub vertical: Vertical,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Vertical {
+    /// A line counted from the top from 0, or from the bottom from -1.
+    Line(i32),
+    /// The fraction of the video height where the cue's `Anchor` is.
+    At(f64, Anchor),
+}
+
+impl Placement {
+    /// The cue box, as WebVTT's rendering rules compute it.
+    pub fn cue_box(&self) -> CueBox {
+        let position = self.position.unwrap_or(match self.align {
+            Align::Left => 0.0,
+            Align::Right => 100.0,
+            _ => 50.0,
+        });
+        let position_align = self.position_align.unwrap_or(match self.align {
+            Align::Start | Align::Left => Anchor::Start,
+            Align::End | Align::Right => Anchor::End,
+            Align::Center => Anchor::Center,
+        });
+        let max_size = match position_align {
+            Anchor::Start => 100.0 - position,
+            Anchor::End => position,
+            Anchor::Center => 2.0 * position.min(100.0 - position),
+        };
+        let size = self.size.unwrap_or(100.0).min(max_size);
+        let left = match position_align {
+            Anchor::Start => position,
+            Anchor::End => position - size,
+            Anchor::Center => position - size / 2.0,
+        };
+        CueBox {
+            left: left / 100.0,
+            width: size / 100.0,
+            align: match self.align {
+                Align::Start | Align::Left => TextAlign::Left,
+                Align::Center => TextAlign::Center,
+                Align::End | Align::Right => TextAlign::Right,
+            },
+            vertical: match self.line {
+                Line::Auto => Vertical::Line(-1),
+                Line::Number(n) => Vertical::Line(n),
+                Line::Percent(p) => Vertical::At(p / 100.0, self.line_align),
+            },
+        }
+    }
 }
 
 /// Parses WebVTT cues. Markup such as `<c>` tags and inline timestamps is
@@ -34,7 +152,9 @@ fn parse_block(lines: &[&str]) -> Option<Cue> {
     // An optional identifier precedes the timing line.
     let timing = lines.iter().take(2).position(|l| l.contains("-->"))?;
     let (start, rest) = lines[timing].split_once("-->")?;
-    let end = rest.split_whitespace().next()?;
+    let mut rest = rest.split_whitespace();
+    let end = rest.next()?;
+    let placement = placement(rest);
     let text = lines[timing + 1..]
         .iter()
         .map(|line| plain_text(line))
@@ -45,7 +165,83 @@ fn parse_block(lines: &[&str]) -> Option<Cue> {
         start: timestamp(start.trim())?,
         end: timestamp(end)?,
         text,
+        placement,
     })
+}
+
+/// The placement from cue settings such as `line:10%` or `align:left`.
+/// Invalid settings are ignored.
+fn placement<'a>(settings: impl Iterator<Item = &'a str>) -> Placement {
+    let mut placement = Placement::default();
+    for setting in settings {
+        let Some((name, value)) = setting.split_once(':') else {
+            continue;
+        };
+        let (value, anchor) = match value.split_once(',') {
+            Some((value, anchor)) => (value, Some(anchor)),
+            None => (value, None),
+        };
+        match name {
+            "line" => {
+                let line = match value.strip_suffix('%') {
+                    Some(value) => percent(value).map(Line::Percent),
+                    None => value.parse().ok().map(Line::Number),
+                };
+                let line_align = match anchor {
+                    None | Some("start") => Some(Anchor::Start),
+                    Some("center") => Some(Anchor::Center),
+                    Some("end") => Some(Anchor::End),
+                    Some(_) => None,
+                };
+                if let (Some(line), Some(line_align)) = (line, line_align) {
+                    placement.line = line;
+                    placement.line_align = line_align;
+                }
+            }
+            "position" => {
+                let position_align = match anchor {
+                    None | Some("auto") => Some(None),
+                    Some("line-left") => Some(Some(Anchor::Start)),
+                    Some("center") => Some(Some(Anchor::Center)),
+                    Some("line-right") => Some(Some(Anchor::End)),
+                    Some(_) => None,
+                };
+                if let (Some(position), Some(position_align)) =
+                    (value.strip_suffix('%').and_then(percent), position_align)
+                {
+                    placement.position = Some(position);
+                    placement.position_align = position_align;
+                }
+            }
+            "size" if anchor.is_none() => {
+                if let Some(size) = value.strip_suffix('%').and_then(percent) {
+                    placement.size = Some(size);
+                }
+            }
+            "align" if anchor.is_none() => {
+                let align = match value {
+                    "start" => Align::Start,
+                    "center" => Align::Center,
+                    "end" => Align::End,
+                    "left" => Align::Left,
+                    "right" => Align::Right,
+                    _ => continue,
+                };
+                placement.align = align;
+            }
+            _ => {}
+        }
+    }
+    placement
+}
+
+/// Parses a percentage without its `%`, such as `12.5`, from 0 to 100.
+fn percent(s: &str) -> Option<f64> {
+    let valid = s.starts_with(|c: char| c.is_ascii_digit())
+        && s.chars().all(|c| c.is_ascii_digit() || c == '.');
+    s.parse()
+        .ok()
+        .filter(|p| valid && (0.0..=100.0).contains(p))
 }
 
 /// Parses `hh:mm:ss.ttt` or `mm:ss.ttt`.
@@ -103,22 +299,75 @@ pub fn to_vtt(cues: &[Cue]) -> String {
             .replace('<', "&lt;")
             .replace('>', "&gt;");
         vtt += &format!(
-            "\n{} --> {}\n{text}\n",
+            "\n{} --> {}{}\n{text}\n",
             timestamp(cue.start),
-            timestamp(cue.end)
+            timestamp(cue.end),
+            settings(&cue.placement)
         );
     }
     vtt
 }
 
-/// The text to show at `position`: all active cues, one per line.
+/// The cue settings of `placement`, each preceded by a space.
+fn settings(placement: &Placement) -> String {
+    let anchor = |anchor| match anchor {
+        Anchor::Start => "start",
+        Anchor::Center => "center",
+        Anchor::End => "end",
+    };
+    let mut settings = String::new();
+    match placement.line {
+        Line::Auto => {}
+        Line::Number(n) => settings += &format!(" line:{n}"),
+        Line::Percent(p) => {
+            settings += &format!(" line:{p}%,{}", anchor(placement.line_align));
+        }
+    }
+    if let Some(position) = placement.position {
+        let align = match placement.position_align {
+            None => "auto",
+            Some(Anchor::Start) => "line-left",
+            Some(Anchor::Center) => "center",
+            Some(Anchor::End) => "line-right",
+        };
+        settings += &format!(" position:{position}%,{align}");
+    }
+    if let Some(size) = placement.size {
+        settings += &format!(" size:{size}%");
+    }
+    let align = match placement.align {
+        Align::Start => "start",
+        Align::Center => "center",
+        Align::End => "end",
+        Align::Left => "left",
+        Align::Right => "right",
+    };
+    if placement.align != Align::Center {
+        settings += &format!(" align:{align}");
+    }
+    settings
+}
+
+/// The text to show centered at the bottom at `position`: all active
+/// cues with the default [`Placement`], one per line.
 pub fn text_at(cues: &[Cue], position: Duration) -> Option<String> {
-    let active: Vec<_> = cues
-        .iter()
-        .filter(|c| c.start <= position && position < c.end)
+    let active: Vec<_> = active_at(cues, position)
+        .filter(|c| c.placement == Placement::default())
         .map(|c| c.text.as_str())
         .collect();
     (!active.is_empty()).then(|| active.join("\n"))
+}
+
+/// The active cues at `position` that are placed by cue settings.
+pub fn placed_at(cues: &[Cue], position: Duration) -> Vec<&Cue> {
+    active_at(cues, position)
+        .filter(|c| c.placement != Placement::default())
+        .collect()
+}
+
+fn active_at(cues: &[Cue], position: Duration) -> impl Iterator<Item = &Cue> {
+    cues.iter()
+        .filter(move |c| c.start <= position && position < c.end)
 }
 
 /// The index of the track to show for the preferred language `lang`:
@@ -185,7 +434,153 @@ mod tests {
             start: ms(start),
             end: ms(end),
             text: text.into(),
+            placement: Placement::default(),
         }
+    }
+
+    fn settings(settings: &str) -> Placement {
+        let vtt = format!("WEBVTT\n\n00:01.000 --> 00:02.000 {settings}\nHi\n");
+        parse_vtt(&vtt)[0].placement
+    }
+
+    #[test]
+    fn parses_cue_settings() {
+        assert_eq!(
+            settings("align:left size:35% position:0%"),
+            Placement {
+                align: Align::Left,
+                size: Some(35.0),
+                position: Some(0.0),
+                ..Placement::default()
+            }
+        );
+        assert_eq!(
+            settings("line:10% position:12.5%,line-right align:end"),
+            Placement {
+                line: Line::Percent(10.0),
+                position: Some(12.5),
+                position_align: Some(Anchor::End),
+                align: Align::End,
+                ..Placement::default()
+            }
+        );
+        assert_eq!(
+            settings("line:50%,center"),
+            Placement {
+                line: Line::Percent(50.0),
+                line_align: Anchor::Center,
+                ..Placement::default()
+            }
+        );
+        assert_eq!(
+            settings("line:-2 align:start"),
+            Placement {
+                line: Line::Number(-2),
+                align: Align::Start,
+                ..Placement::default()
+            }
+        );
+        assert_eq!(settings("line:3,end").line, Line::Number(3));
+    }
+
+    #[test]
+    fn ignores_invalid_and_unsupported_settings() {
+        for invalid in [
+            "align:middle",
+            "size:120%",
+            "size:35",
+            "position:-5%",
+            "position:5%,top",
+            "line:1.5",
+            "line:%",
+            "line:10%,left",
+            "vertical:rl",
+            "region:fred",
+            "nonsense",
+        ] {
+            assert_eq!(settings(invalid), Placement::default(), "{invalid}");
+        }
+    }
+
+    fn cue_box(settings_: &str) -> CueBox {
+        settings(settings_).cue_box()
+    }
+
+    #[test]
+    fn default_cue_box_is_centered_at_the_bottom() {
+        assert_eq!(
+            cue_box(""),
+            CueBox {
+                left: 0.0,
+                width: 1.0,
+                align: TextAlign::Center,
+                vertical: Vertical::Line(-1),
+            }
+        );
+    }
+
+    #[test]
+    fn cue_box_follows_position_size_and_align() {
+        let boxed = |settings| {
+            let b = cue_box(settings);
+            (b.left, b.width, b.align)
+        };
+        assert_eq!(
+            boxed("align:left size:35% position:0%"),
+            (0.0, 0.35, TextAlign::Left)
+        );
+        assert_eq!(
+            boxed("align:right size:35% position:100%"),
+            (0.65, 0.35, TextAlign::Right)
+        );
+        // Without a position, start and end text is anchored at the center.
+        assert_eq!(boxed("align:start"), (0.5, 0.5, TextAlign::Left));
+        assert_eq!(boxed("align:end"), (0.0, 0.5, TextAlign::Right));
+        assert_eq!(boxed("align:right"), (0.0, 1.0, TextAlign::Right));
+        // The box is limited to the video.
+        assert_eq!(boxed("position:30%"), (0.0, 0.6, TextAlign::Center));
+        assert_eq!(
+            boxed("position:80% size:30%"),
+            (0.65, 0.3, TextAlign::Center)
+        );
+        assert_eq!(
+            boxed("position:40%,line-right size:50% align:left"),
+            (0.0, 0.4, TextAlign::Left)
+        );
+    }
+
+    #[test]
+    fn cue_box_follows_line() {
+        let vertical = |settings| cue_box(settings).vertical;
+        assert_eq!(vertical("line:-2"), Vertical::Line(-2));
+        assert_eq!(vertical("line:0"), Vertical::Line(0));
+        assert_eq!(vertical("line:10%"), Vertical::At(0.1, Anchor::Start));
+        assert_eq!(
+            vertical("line:50%,center"),
+            Vertical::At(0.5, Anchor::Center)
+        );
+    }
+
+    #[test]
+    fn parses_positioned_captions() {
+        let cues = parse_vtt(include_str!(
+            "../../tests/fixtures/subtitles_positioned.vtt"
+        ));
+        let placements: Vec<_> = cues.iter().map(|c| c.placement).collect();
+        assert_eq!(
+            placements[0],
+            Placement {
+                align: Align::Right,
+                size: Some(35.0),
+                position: Some(100.0),
+                ..Placement::default()
+            }
+        );
+        assert_eq!(placements[3].line, Line::Percent(10.0));
+        assert_eq!(
+            cues[3].text,
+            "how to change the text colour\nand positioning of captions."
+        );
     }
 
     #[test]
@@ -203,8 +598,8 @@ mod tests {
     }
 
     #[test]
-    fn accepts_short_timestamps_crlf_and_settings() {
-        let vtt = "WEBVTT\r\n\r\n00:05.000 --> 00:06.250 align:start position:0%\r\nHi\r\n";
+    fn accepts_short_timestamps_and_crlf() {
+        let vtt = "WEBVTT\r\n\r\n00:05.000 --> 00:06.250\r\nHi\r\n";
         assert_eq!(parse_vtt(vtt), [cue(5_000, 6_250, "Hi")]);
     }
 
@@ -235,6 +630,14 @@ mod tests {
         let cues = [
             cue(1_360, 3_040, "Tom & Jerry <3"),
             cue(3_723_000, 3_724_500, "Two\nlines"),
+            Cue {
+                placement: settings("line:-2 position:12.5%,line-right size:35% align:left"),
+                ..cue(5_000, 6_000, "Placed")
+            },
+            Cue {
+                placement: settings("line:10%,end"),
+                ..cue(6_000, 7_000, "Placed")
+            },
         ];
         let vtt = to_vtt(&cues);
         assert!(
@@ -260,5 +663,18 @@ mod tests {
         );
         assert_eq!(text_at(&cues, ms(4_000)), None);
         assert_eq!(text_at(&cues, ms(9_000)), None);
+    }
+
+    #[test]
+    fn placed_cues_are_shown_apart() {
+        let top = Cue {
+            placement: settings("line:0"),
+            ..cue(0, 2_000, "top")
+        };
+        let cues = [cue(0, 2_000, "a"), top.clone(), cue(1_000, 3_000, "b")];
+        assert_eq!(text_at(&cues, ms(1_500)).as_deref(), Some("a\nb"));
+        assert_eq!(placed_at(&cues, ms(1_500)), [&top]);
+        assert_eq!(text_at(std::slice::from_ref(&top), ms(500)), None);
+        assert!(placed_at(&cues, ms(2_500)).is_empty());
     }
 }

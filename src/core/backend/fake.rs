@@ -218,6 +218,7 @@ mod tests {
             start: std::time::Duration::ZERO,
             end: std::time::Duration::from_secs(1),
             text: "Hi".into(),
+            placement: Default::default(),
         }]
     }
 }
