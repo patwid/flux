@@ -531,6 +531,7 @@ dependencies = [
  "feed-rs",
  "futures",
  "gstreamer",
+ "quick-xml",
  "relm4",
  "reqwest",
  "rusqlite",

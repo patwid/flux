@@ -1,5 +1,6 @@
 //! WebVTT subtitles: parsing and finding the cue to show.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use super::model::SubtitleTrack;
@@ -127,6 +128,146 @@ impl Placement {
                 Line::Percent(p) => Vertical::At(p / 100.0, self.line_align),
             },
         }
+    }
+}
+
+/// Parses cues of WebVTT or of YouTube's srv3 format.
+pub fn parse(subtitles: &str) -> Vec<Cue> {
+    if subtitles.trim_start().starts_with('<') {
+        parse_srv3(subtitles)
+    } else {
+        parse_vtt(subtitles)
+    }
+}
+
+/// A srv3 window position (`<wp>`): the anchor point of the window, 0 to 8
+/// row by row from the top left, at `h` and `v` percent of the video.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Window {
+    anchor: u8,
+    h: f64,
+    v: f64,
+}
+
+/// Centered at the bottom.
+const DEFAULT_WINDOW: Window = Window {
+    anchor: 7,
+    h: 50.0,
+    v: 100.0,
+};
+
+/// Parses cues of YouTube's srv3 format (`<timedtext format="3">`), placed
+/// by their window positions and styles. Markup is removed.
+pub fn parse_srv3(xml: &str) -> Vec<Cue> {
+    use quick_xml::events::Event;
+
+    let mut reader = quick_xml::Reader::from_str(xml);
+    let mut windows = HashMap::new();
+    let mut aligns = HashMap::new();
+    let mut cues = Vec::new();
+    // The open paragraph: its timing, placement and escaped text.
+    let mut paragraph: Option<(Duration, Duration, Placement, String)> = None;
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(e) | Event::Empty(e)) => {
+                let attr = |name| {
+                    let value = e.try_get_attribute(name).ok()??;
+                    let value = value
+                        .normalized_value(quick_xml::XmlVersion::Implicit1_0)
+                        .ok()?;
+                    Some(value.into_owned())
+                };
+                let number = |name| attr(name).and_then(|v| v.parse::<f64>().ok());
+                match e.name().as_ref() {
+                    "wp" => {
+                        let window = Window {
+                            anchor: attr("ap")
+                                .and_then(|a| a.parse().ok())
+                                .filter(|a| *a <= 8)
+                                .unwrap_or(DEFAULT_WINDOW.anchor),
+                            h: number("ah").unwrap_or(DEFAULT_WINDOW.h),
+                            v: number("av").unwrap_or(DEFAULT_WINDOW.v),
+                        };
+                        windows.extend(attr("id").map(|id| (id, window)));
+                    }
+                    "ws" => {
+                        let align = match attr("ju").as_deref() {
+                            Some("0") => Align::Left,
+                            Some("1") => Align::Right,
+                            _ => Align::Center,
+                        };
+                        aligns.extend(attr("id").map(|id| (id, align)));
+                    }
+                    "p" => {
+                        let window = attr("wp").and_then(|id| windows.get(&id).copied());
+                        let align = attr("ws").and_then(|id| aligns.get(&id).copied());
+                        let placement = window_placement(
+                            window.unwrap_or(DEFAULT_WINDOW),
+                            align.unwrap_or(Align::Center),
+                        );
+                        let millis = |name| number(name).map(|n| Duration::from_millis(n as u64));
+                        paragraph = millis("t").map(|start| {
+                            let end = start + millis("d").unwrap_or_default();
+                            (start, end, placement, String::new())
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            Ok(Event::Text(e)) => {
+                if let Some((.., text)) = &mut paragraph {
+                    text.push_str(&e.html_content());
+                }
+            }
+            Ok(Event::GeneralRef(e)) => {
+                if let Some((.., text)) = &mut paragraph {
+                    text.push_str(&format!("&{};", e.html_content()));
+                }
+            }
+            Ok(Event::End(e)) if e.name().as_ref() == "p" => {
+                let Some((start, end, placement, text)) = paragraph.take() else {
+                    continue;
+                };
+                let text = quick_xml::escape::unescape(&text)
+                    .map(|t| t.into_owned())
+                    .unwrap_or(text);
+                let text = text
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !text.is_empty() {
+                    cues.push(Cue {
+                        start,
+                        end,
+                        text,
+                        placement,
+                    });
+                }
+            }
+            Ok(Event::Eof) | Err(_) => break,
+            _ => {}
+        }
+    }
+    cues
+}
+
+/// The placement of a cue in `window` with text aligned by `align`.
+fn window_placement(window: Window, align: Align) -> Placement {
+    if window == DEFAULT_WINDOW && align == Align::Center {
+        return Placement::default();
+    }
+    let anchor = |i: u8| [Anchor::Start, Anchor::Center, Anchor::End][usize::from(i)];
+    // YouTube keeps windows 2% away from the edges.
+    let percent = |p: f64| 2.0 + p.clamp(0.0, 100.0) * 0.96;
+    Placement {
+        line: Line::Percent(percent(window.v)),
+        line_align: anchor(window.anchor / 3),
+        position: Some(percent(window.h)),
+        position_align: Some(anchor(window.anchor % 3)),
+        size: None,
+        align,
     }
 }
 
@@ -559,6 +700,109 @@ mod tests {
             vertical("line:50%,center"),
             Vertical::At(0.5, Anchor::Center)
         );
+    }
+
+    fn srv3(head: &str, body: &str) -> Vec<Cue> {
+        parse_srv3(&format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\" ?><timedtext format=\"3\">\n\
+             <head>{head}</head>\n<body>{body}</body>\n</timedtext>"
+        ))
+    }
+
+    #[test]
+    fn parses_srv3() {
+        let cues = parse_srv3(include_str!("../../tests/fixtures/subtitles_srv3.xml"));
+        assert_eq!(cues.len(), 2);
+        assert_eq!((cues[0].start, cues[0].end), (ms(2_000), ms(3_000)));
+        assert_eq!(cues[0].text, "ezrab_\u{200b}: FREEDOM");
+        assert_eq!(
+            cues[1].text.lines().last(),
+            Some("haze_dev\u{200b}: I'm FREEEE")
+        );
+        assert_eq!(
+            cues[1].placement,
+            Placement {
+                line: Line::Percent(2.0),
+                line_align: Anchor::Start,
+                position: Some(2.0 + 62.0 * 0.96),
+                position_align: Some(Anchor::Start),
+                size: None,
+                align: Align::Left,
+            }
+        );
+    }
+
+    #[test]
+    fn srv3_without_windows_is_unplaced() {
+        let cues = srv3(
+            "<wp id=\"0\"/><ws id=\"0\"/>",
+            "<p t=\"500\" d=\"1000\">Tom &amp; Jerry\n<s p=\"1\">&lt;3</s></p>\
+             <p t=\"2000\" d=\"1000\" wp=\"0\" ws=\"0\">Hi</p>\
+             <p t=\"3000\" d=\"1000\">\n</p>",
+        );
+        assert_eq!(
+            cues,
+            [
+                Cue {
+                    start: ms(500),
+                    end: ms(1_500),
+                    text: "Tom & Jerry\n<3".into(),
+                    placement: Placement::default(),
+                },
+                cue(2_000, 3_000, "Hi"),
+            ]
+        );
+    }
+
+    #[test]
+    fn srv3_windows_place_cues() {
+        let cues = srv3(
+            "<wp id=\"1\" ap=\"8\" ah=\"100\" av=\"100\"/>\
+             <wp id=\"2\" ap=\"4\" ah=\"50\" av=\"50\"/>\
+             <ws id=\"1\" ju=\"1\"/><ws id=\"2\" ju=\"2\"/>",
+            "<p t=\"0\" d=\"1\" wp=\"1\" ws=\"1\">a</p>\
+             <p t=\"0\" d=\"1\" wp=\"2\" ws=\"2\">b</p>\
+             <p t=\"0\" d=\"1\" ws=\"1\">c</p>",
+        );
+        let placements: Vec<_> = cues.iter().map(|c| c.placement).collect();
+        assert_eq!(
+            placements,
+            [
+                Placement {
+                    line: Line::Percent(98.0),
+                    line_align: Anchor::End,
+                    position: Some(98.0),
+                    position_align: Some(Anchor::End),
+                    size: None,
+                    align: Align::Right,
+                },
+                Placement {
+                    line: Line::Percent(50.0),
+                    line_align: Anchor::Center,
+                    position: Some(50.0),
+                    position_align: Some(Anchor::Center),
+                    size: None,
+                    align: Align::Center,
+                },
+                Placement {
+                    line: Line::Percent(98.0),
+                    line_align: Anchor::End,
+                    position: Some(50.0),
+                    position_align: Some(Anchor::Center),
+                    size: None,
+                    align: Align::Right,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_detects_the_format() {
+        let vtt = "WEBVTT\n\n00:01.000 --> 00:02.000\nHi\n";
+        assert_eq!(parse(vtt), parse_vtt(vtt));
+        let xml = include_str!("../../tests/fixtures/subtitles_srv3.xml");
+        assert_eq!(parse(xml), parse_srv3(xml));
+        assert_eq!(parse(xml).len(), 2);
     }
 
     #[test]
