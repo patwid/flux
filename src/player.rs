@@ -141,6 +141,36 @@ fn configure_http(element: &gst::Element) {
     element.set_property("retry-backoff-max", policy.max_delay.as_secs_f64());
 }
 
+/// Whether `factory` makes decoders that decode in hardware, e.g.
+/// `v4l2slh264dec` or `vah264dec`. (Its types are matched if any is.)
+fn decodes_in_hardware(factory: &gst::ElementFactory) -> bool {
+    factory.has_type(gst::ElementFactoryType::DECODER)
+        && factory.has_type(gst::ElementFactoryType::HARDWARE)
+}
+
+/// Whether `element` decodes in hardware.
+pub fn is_hardware_decoder(element: &gst::Element) -> bool {
+    element.factory().is_some_and(|f| decodes_in_hardware(&f))
+}
+
+/// Makes engines created from now on decode in software. Hardware decoders
+/// can fail for good mid-stream: `v4l2slh264dec` gives up on a frame the
+/// hardware takes over a second to decode, and on every frame after it.
+pub fn disable_hardware_decoders() {
+    demote(
+        gst::ElementFactory::factories_with_type(gst::ElementFactoryType::DECODER, gst::Rank::NONE)
+            .into_iter()
+            .filter(decodes_in_hardware),
+    );
+}
+
+/// Keeps decoders from choosing the elements of `factories`.
+fn demote(factories: impl IntoIterator<Item = gst::ElementFactory>) {
+    for factory in factories {
+        factory.set_rank(gst::Rank::NONE);
+    }
+}
+
 impl Drop for Engine {
     fn drop(&mut self) {
         let _ = self.pipeline.set_state(gst::State::Null);
@@ -292,6 +322,58 @@ mod tests {
             .find(|e| e.factory().is_some_and(|f| f.name() == "souphttpsrc"))
             .expect("an HTTP source");
         assert_eq!(retries(&http).0, 10);
+    }
+
+    #[test]
+    fn software_decoders_are_not_hardware_decoders() {
+        gst::init().unwrap();
+        let decoder = gst::ElementFactory::make("vp8dec").build().unwrap();
+        assert!(!is_hardware_decoder(&decoder));
+    }
+
+    #[test]
+    fn engines_do_not_use_demoted_decoders() {
+        gst::init().unwrap();
+        // No other test decodes H.264, which this one demotes the decoder of.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v.mkv");
+        let pipeline = gst::parse::launch(&format!(
+            "videotestsrc num-buffers=10 ! openh264enc ! h264parse ! matroskamux ! filesink location={}",
+            path.display()
+        ))
+        .unwrap();
+        pipeline.set_state(gst::State::Playing).unwrap();
+        pipeline
+            .bus()
+            .unwrap()
+            .timed_pop_filtered(gst::ClockTime::from_seconds(30), &[gst::MessageType::Eos]);
+        pipeline.set_state(gst::State::Null).unwrap();
+
+        let decoders = |engine: &Engine| -> Vec<String> {
+            let bin = engine.pipeline.downcast_ref::<gst::Bin>().unwrap();
+            bin.iterate_recurse()
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.factory())
+                .filter(|f| f.has_type(gst::ElementFactoryType::DECODER))
+                .map(|f| f.name().to_string())
+                .collect()
+        };
+        let play = || {
+            let engine = Engine::new(&PlaybackSource::Uri(uri(&path)), sink(), sink()).unwrap();
+            engine.pause().unwrap();
+            wait_for(&engine, &[gst::MessageType::AsyncDone]);
+            engine
+        };
+
+        let preferred = decoders(&play()).pop().expect("a decoder");
+        let factory = gst::ElementFactory::find(&preferred).unwrap();
+        let rank = factory.rank();
+        demote([factory.clone()]);
+        let fallback = decoders(&play()).pop();
+        factory.set_rank(rank);
+
+        assert!(fallback.is_some_and(|f| f != preferred), "{preferred}");
     }
 
     #[test]

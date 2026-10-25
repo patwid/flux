@@ -62,7 +62,7 @@ impl Controls {
 }
 
 /// Keeps the session from idling (blanking the screen) or suspending while
-/// a video plays: the hardware decoder fails when the device suspends.
+/// a video plays: hardware decoders fail when the device suspends.
 #[derive(Debug, Default)]
 pub struct Inhibitor {
     /// The cookie of the inhibition held.
@@ -796,6 +796,15 @@ impl PlayerView {
                         e.error(),
                         e.debug().unwrap_or_default()
                     );
+                    // The video is loaded again; decode it in software then.
+                    if msg
+                        .src()
+                        .and_then(|s| s.downcast_ref::<gst::Element>())
+                        .is_some_and(crate::player::is_hardware_decoder)
+                    {
+                        eprintln!("flux: decoding in software from now on");
+                        crate::player::disable_hardware_decoders();
+                    }
                     Some(Msg::Error(e.error().to_string()))
                 }
                 _ => None,
