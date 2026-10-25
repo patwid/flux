@@ -390,7 +390,11 @@ impl State {
                     Ok(cues) => Effect::ShowSubtitles(cues),
                     Err(e) => {
                         self.subtitles.selected = None;
-                        Effect::SubtitlesFailed(e)
+                        // The cues of an earlier track may still show.
+                        return vec![
+                            Effect::ShowSubtitles(Vec::new()),
+                            Effect::SubtitlesFailed(e),
+                        ];
                     }
                 }];
             }
@@ -1798,7 +1802,10 @@ mod tests {
 
         assert_eq!(
             state.update(Msg::Subtitles(0, Err("HTTP 429".into()))),
-            [Effect::SubtitlesFailed("HTTP 429".into())]
+            [
+                Effect::ShowSubtitles(Vec::new()),
+                Effect::SubtitlesFailed("HTTP 429".into())
+            ]
         );
         assert_eq!(state.subtitles.selected, None);
     }
