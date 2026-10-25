@@ -283,6 +283,9 @@ fn video_factory() -> gtk::SignalListItemFactory {
             return;
         };
         let row = widgets::with_chevron(widgets::video_row(&video.borrow::<Video>()));
+        // The list item takes focus and activates; the row, outside a list
+        // box, can't grab focus itself.
+        row.set_focusable(false);
         item.set_child(Some(&row));
     });
     factory
