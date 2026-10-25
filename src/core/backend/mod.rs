@@ -69,7 +69,7 @@ pub async fn load_subtitles(backend: &dyn Backend, url: &str) -> Result<Vec<Cue>
     {
         Some(path) => {
             let vtt = tokio::fs::read_to_string(path).await?;
-            Ok(super::subtitles::parse_vtt(&vtt))
+            Ok(super::subtitles::parse(&vtt))
         }
         None => backend.subtitles(url).await,
     }

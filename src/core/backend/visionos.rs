@@ -204,15 +204,16 @@ pub fn parse_player_response(body: &[u8]) -> Result<Streams> {
                     .simple_text
                     .unwrap_or_else(|| track.name.runs.into_iter().map(|run| run.text).collect()),
                 lang: track.language_code,
-                url: vtt_url(&track.base_url),
+                url: timedtext_url(&track.base_url, track.kind.as_deref() == Some("asr")),
                 auto_generated: track.kind.as_deref() == Some("asr"),
             })
             .collect(),
     })
 }
 
-/// `url` of a timed text track, changed to request WebVTT.
-pub fn vtt_url(url: &str) -> String {
+/// `url` of a timed text track, changed to request srv3, which keeps the
+/// positions of manual tracks, or WebVTT for `auto_generated` tracks.
+pub fn timedtext_url(url: &str, auto_generated: bool) -> String {
     let Ok(mut parsed) = url::Url::parse(url) else {
         return url.into();
     };
@@ -225,7 +226,7 @@ pub fn vtt_url(url: &str) -> String {
         .query_pairs_mut()
         .clear()
         .extend_pairs(pairs)
-        .append_pair("fmt", "vtt");
+        .append_pair("fmt", if auto_generated { "vtt" } else { "srv3" });
     parsed.into()
 }
 
@@ -338,7 +339,7 @@ mod tests {
                 SubtitleTrack {
                     name: "English".into(),
                     lang: "en".into(),
-                    url: "https://www.youtube.com/api/timedtext?v=x&lang=en&fmt=vtt".into(),
+                    url: "https://www.youtube.com/api/timedtext?v=x&lang=en&fmt=srv3".into(),
                     auto_generated: false,
                 },
                 SubtitleTrack {

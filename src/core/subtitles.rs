@@ -133,11 +133,16 @@ impl Placement {
 
 /// Parses cues of WebVTT or of YouTube's srv3 format.
 pub fn parse(subtitles: &str) -> Vec<Cue> {
-    if subtitles.trim_start().starts_with('<') {
+    if is_srv3(subtitles) {
         parse_srv3(subtitles)
     } else {
         parse_vtt(subtitles)
     }
+}
+
+/// Whether `subtitles` are srv3 (XML) rather than WebVTT.
+fn is_srv3(subtitles: &str) -> bool {
+    subtitles.trim_start().starts_with('<')
 }
 
 /// A srv3 window position (`<wp>`): the anchor point of the window, 0 to 8
@@ -260,7 +265,7 @@ fn window_placement(window: Window, align: Align) -> Placement {
     }
     let anchor = |i: u8| [Anchor::Start, Anchor::Center, Anchor::End][usize::from(i)];
     // YouTube keeps windows 2% away from the edges.
-    let percent = |p: f64| 2.0 + p.clamp(0.0, 100.0) * 0.96;
+    let percent = |p: f64| 2.0 + p.clamp(0.0, 100.0) * 96.0 / 100.0;
     Placement {
         line: Line::Percent(percent(window.v)),
         line_align: anchor(window.anchor / 3),
@@ -487,6 +492,15 @@ fn settings(placement: &Placement) -> String {
         settings += &format!(" align:{align}");
     }
     settings
+}
+
+/// `subtitles` as WebVTT: srv3 is converted, WebVTT kept as is.
+pub fn as_vtt(subtitles: &str) -> std::borrow::Cow<'_, str> {
+    if is_srv3(subtitles) {
+        to_vtt(&parse_srv3(subtitles)).into()
+    } else {
+        subtitles.into()
+    }
 }
 
 /// The text to show centered at the bottom at `position`: all active
@@ -724,7 +738,7 @@ mod tests {
             Placement {
                 line: Line::Percent(2.0),
                 line_align: Anchor::Start,
-                position: Some(2.0 + 62.0 * 0.96),
+                position: Some(61.52),
                 position_align: Some(Anchor::Start),
                 size: None,
                 align: Align::Left,
@@ -803,6 +817,14 @@ mod tests {
         let xml = include_str!("../../tests/fixtures/subtitles_srv3.xml");
         assert_eq!(parse(xml), parse_srv3(xml));
         assert_eq!(parse(xml).len(), 2);
+    }
+
+    #[test]
+    fn saves_srv3_as_vtt() {
+        let vtt = include_str!("../../tests/fixtures/subtitles_asr.vtt");
+        assert_eq!(as_vtt(vtt), vtt, "WebVTT is kept as is");
+        let xml = include_str!("../../tests/fixtures/subtitles_srv3.xml");
+        assert_eq!(parse_vtt(&as_vtt(xml)), parse_srv3(xml));
     }
 
     #[test]

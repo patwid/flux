@@ -152,7 +152,7 @@ impl Backend for RustyPipeBackend {
     }
 
     async fn subtitles(&self, url: &str) -> Result<Vec<Cue>> {
-        let vtt = self
+        let body = self
             .http
             .get(url)
             .send()
@@ -160,7 +160,7 @@ impl Backend for RustyPipeBackend {
             .error_for_status()?
             .text()
             .await?;
-        Ok(subtitles::parse_vtt(&vtt))
+        Ok(subtitles::parse(&body))
     }
 }
 
@@ -250,7 +250,7 @@ impl RustyPipeBackend {
         let mut saved = Vec::new();
         for (track, path) in tracks.iter().zip(download::subtitle_paths(video, tracks)) {
             let result = async {
-                let vtt = self
+                let body = self
                     .http
                     .get(&track.url)
                     .send()
@@ -258,7 +258,7 @@ impl RustyPipeBackend {
                     .error_for_status()?
                     .text()
                     .await?;
-                tokio::fs::write(&path, vtt).await?;
+                tokio::fs::write(&path, subtitles::as_vtt(&body).as_bytes()).await?;
                 super::saved_track(track, &path)
             }
             .await;
@@ -396,7 +396,7 @@ fn subtitle_track(s: rp::Subtitle) -> SubtitleTrack {
             s.lang_name
         },
         lang: s.lang,
-        url: visionos::vtt_url(&s.url),
+        url: visionos::timedtext_url(&s.url, s.auto_generated),
         auto_generated: s.auto_generated,
     }
 }
@@ -602,7 +602,7 @@ mod tests {
             SubtitleTrack {
                 name: "English".into(),
                 lang: "en".into(),
-                url: "https://www.youtube.com/api/timedtext?v=x&lang=en&fmt=vtt".into(),
+                url: "https://www.youtube.com/api/timedtext?v=x&lang=en&fmt=srv3".into(),
                 auto_generated: false,
             }
         );
