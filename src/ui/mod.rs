@@ -2,6 +2,7 @@ pub mod app;
 pub mod aspect;
 pub mod channel;
 pub mod comments;
+pub mod cue_layout;
 pub mod downloads;
 pub mod feed;
 pub mod format;

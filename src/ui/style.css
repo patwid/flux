@@ -16,7 +16,8 @@
   font-size: 1.1em;
 }
 
-.player-subtitle.large {
+.player-subtitle.large,
+.cues.large > .player-subtitle {
   font-size: 1.6em;
 }
 

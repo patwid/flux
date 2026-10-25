@@ -13,7 +13,7 @@ use flux::core::model::{
     Channel, Comment, CommentPage, SearchItem, Streams, SubtitleTrack, Video, VideoDetails,
     VideoStream,
 };
-use flux::core::subtitles::Cue;
+use flux::core::subtitles::{self, Cue};
 use flux::ui::Services;
 use gstreamer as gst;
 use gstreamer::prelude::*;
@@ -76,8 +76,15 @@ fn subtitle_tracks() -> Vec<SubtitleTrack> {
     .collect()
 }
 
-/// One cue per two seconds, counting up.
+/// One cue per two seconds, counting up, and two placed by cue settings.
 fn subtitle_cues(prefix: &str) -> Vec<Cue> {
+    let placed = subtitles::parse_vtt(&format!(
+        "WEBVTT\n\n\
+         00:00.000 --> 00:10.000 line:10% position:0% size:35% align:left\n\
+         {prefix} at the top left\n\n\
+         00:00.000 --> 00:02.000 position:100% size:35% align:right\n\
+         {prefix} on the right\n"
+    ));
     (0..5)
         .map(|i| Cue {
             start: std::time::Duration::from_secs(i * 2),
@@ -89,6 +96,7 @@ fn subtitle_cues(prefix: &str) -> Vec<Cue> {
             },
             placement: Default::default(),
         })
+        .chain(placed)
         .collect()
 }
 

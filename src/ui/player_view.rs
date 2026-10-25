@@ -8,9 +8,10 @@ use relm4::gtk::gio;
 use relm4::{Component, ComponentParts, ComponentSender, adw, gtk};
 
 use super::aspect::AspectLayout;
+use super::cue_layout::CueLayout;
 use super::format;
 use crate::core::model::PlaybackSource;
-use crate::core::subtitles::{self, Cue};
+use crate::core::subtitles::{self, Cue, TextAlign};
 use crate::player::Engine;
 
 /// Ticks (of the 500 ms position timer) without activity before the
@@ -91,6 +92,11 @@ pub struct PlayerView {
     cues: Vec<Cue>,
     /// The subtitle text at the current position.
     subtitle: Option<String>,
+    /// The cues at the current position that have their own place, with
+    /// a label each in `cue_area`.
+    placed: Vec<Cue>,
+    cue_area: gtk::Box,
+    cue_layout: CueLayout,
     subtitle_timer: Option<gtk::glib::SourceId>,
     /// A message shown in place of subtitles, with the ticks it remains.
     notice: Option<(String, u32)>,
@@ -197,6 +203,14 @@ impl Component for PlayerView {
                     set_hexpand: true,
                 },
 
+                #[local_ref]
+                add_overlay = cue_area -> gtk::Box {
+                    set_layout_manager: Some(cue_layout.clone()),
+                    set_can_target: false,
+                    #[watch]
+                    set_css_classes: if model.fullscreen { &["cues", "large"] } else { &["cues"] },
+                },
+
                 add_overlay = &gtk::Label {
                     set_halign: gtk::Align::Center,
                     set_valign: gtk::Align::End,
@@ -209,7 +223,7 @@ impl Component for PlayerView {
                     set_css_classes: if model.fullscreen { &["player-subtitle", "large"] } else { &["player-subtitle"] },
                     // Above the controls while they show.
                     #[watch]
-                    set_margin_bottom: if model.controls.visible() { 60 } else { 12 },
+                    set_margin_bottom: model.subtitle_margin(),
                     #[watch]
                     set_visible: model.subtitle_text().is_some(),
                     #[watch]
@@ -333,6 +347,9 @@ impl Component for PlayerView {
             fullscreen: false,
             cues: Vec::new(),
             subtitle: None,
+            placed: Vec::new(),
+            cue_area: gtk::Box::default(),
+            cue_layout: CueLayout::default(),
             subtitle_timer: None,
             notice: None,
             has_subtitle_tracks: false,
@@ -347,6 +364,8 @@ impl Component for PlayerView {
         let picture = &model.picture;
         let subtitle_menu = &model.subtitle_menu;
         let subtitle_button = &model.subtitle_button;
+        let cue_area = &model.cue_area;
+        let cue_layout = &model.cue_layout;
         let widgets = view_output!();
 
         // Menu items request a state change, i.e. the user chose a track;
@@ -475,9 +494,15 @@ impl Component for PlayerView {
             Msg::SubtitleTick => {
                 if let Some(position) = self.engine.as_ref().and_then(Engine::position) {
                     self.subtitle = subtitles::text_at(&self.cues, position);
+                    let placed = subtitles::placed_at(&self.cues, position);
+                    if placed.iter().copied().ne(&self.placed) {
+                        let placed = placed.into_iter().cloned().collect();
+                        self.show_placed(placed);
+                    }
                 }
             }
         }
+        self.cue_layout.set_bottom_inset(self.subtitle_margin());
     }
 }
 
@@ -494,6 +519,13 @@ impl PlayerView {
         let sink = gst::ElementFactory::make("gtk4paintablesink").build()?;
         let paintable = sink.property::<gtk::gdk::Paintable>("paintable");
         self.picture.set_paintable(Some(&paintable));
+        self.cue_layout.set_paintable(Some(&paintable));
+        let cue_area = self.cue_area.downgrade();
+        paintable.connect_invalidate_size(move |_| {
+            if let Some(cue_area) = cue_area.upgrade() {
+                cue_area.queue_allocate();
+            }
+        });
         // Use GL when GTK provides a context, as recommended by the sink.
         let video_sink = if paintable
             .property::<Option<gtk::gdk::GLContext>>("gl-context")
@@ -547,6 +579,34 @@ impl PlayerView {
         }
     }
 
+    /// The space below the subtitles: above the controls while they show.
+    fn subtitle_margin(&self) -> i32 {
+        if self.controls.visible() { 60 } else { 12 }
+    }
+
+    /// Shows a label for each of the `placed` cues.
+    fn show_placed(&mut self, placed: Vec<Cue>) {
+        while let Some(label) = self.cue_area.first_child() {
+            self.cue_area.remove(&label);
+        }
+        for cue in &placed {
+            let label = gtk::Label::builder()
+                .label(&cue.text)
+                .wrap(true)
+                .justify(match cue.placement.cue_box().align {
+                    TextAlign::Left => gtk::Justification::Left,
+                    TextAlign::Center => gtk::Justification::Center,
+                    TextAlign::Right => gtk::Justification::Right,
+                })
+                .css_classes(["player-subtitle"])
+                .build();
+            self.cue_area.append(&label);
+        }
+        self.cue_layout
+            .set_boxes(placed.iter().map(|c| c.placement.cue_box()).collect());
+        self.placed = placed;
+    }
+
     /// Fills the subtitle menu with "Off" and the tracks, marking the one
     /// at `selected` (or "Off") as chosen.
     fn fill_subtitle_menu(&mut self, names: &[String], selected: Option<usize>) {
@@ -570,6 +630,7 @@ impl PlayerView {
     fn set_cues(&mut self, cues: Vec<Cue>, sender: &ComponentSender<Self>) {
         self.cues = cues;
         self.subtitle = None;
+        self.show_placed(Vec::new());
         if self.cues.is_empty() {
             if let Some(timer) = self.subtitle_timer.take() {
                 timer.remove();
