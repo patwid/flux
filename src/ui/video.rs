@@ -44,6 +44,30 @@ pub struct Subtitles {
     pub preferred: Option<String>,
 }
 
+/// The tabs below the description.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tab {
+    Comments,
+    Related,
+}
+
+impl Tab {
+    /// The name of the tab's toggle and stack page.
+    pub fn name(self) -> &'static str {
+        match self {
+            Tab::Comments => "comments",
+            Tab::Related => "related",
+        }
+    }
+
+    /// The tab with toggle and stack page `name`.
+    pub fn from_name(name: &str) -> Option<Self> {
+        [Tab::Comments, Tab::Related]
+            .into_iter()
+            .find(|tab| tab.name() == name)
+    }
+}
+
 /// GTK-independent state of a video page.
 #[derive(Debug)]
 pub struct State {
@@ -53,6 +77,11 @@ pub struct State {
     pub subscribed: bool,
     pub comments: Comments,
     pub subtitles: Subtitles,
+    /// The tab shown below the description.
+    pub tab: Tab,
+    pub fullscreen: bool,
+    /// Whether the page is narrower than [`WIDE_WIDTH_SP`].
+    pub narrow: bool,
     /// Position to start playback at, in seconds.
     resume_at: u32,
     /// Last position written to the history.
@@ -110,8 +139,8 @@ pub enum Msg {
     Download(DownloadKind),
     OpenRelated(usize),
     OpenChannel,
-    /// The comments were opened: loads the first page if needed.
-    ShowComments,
+    /// The user chose a tab; the comments load their first page if needed.
+    SelectTab(Tab),
     MoreComments,
     Comments(Result<CommentPage, String>),
     /// Opens the replies to the comment with this index.
@@ -120,6 +149,10 @@ pub enum Msg {
     SelectSubtitles(Option<usize>),
     /// The cues of the track with this index were loaded.
     Subtitles(usize, Result<Vec<Cue>, String>),
+    ToggleFullscreen,
+    LeaveFullscreen,
+    /// The page became narrower (true) or wider than [`WIDE_WIDTH_SP`].
+    Narrow(bool),
 }
 
 #[derive(Debug, PartialEq)]
@@ -162,6 +195,8 @@ pub enum Effect {
     OpenVideo(Video),
     OpenChannel(Channel),
     OpenReplies(Comment),
+    /// Makes the page fullscreen, or not.
+    SetFullscreen(bool),
 }
 
 /// The layout of the video page: the player above the scrolled details
@@ -195,6 +230,9 @@ impl State {
                 preferred: init.subtitle_language,
                 ..Subtitles::default()
             },
+            tab: Tab::Comments,
+            fullscreen: false,
+            narrow: false,
             resume_at,
             saved_position: None,
             streamed: true,
@@ -227,6 +265,12 @@ impl State {
                 self.video.thumbnail_url = self.video.thumbnail_url.take().or(thumbnail);
                 self.comments = Comments::new(details.comments.clone());
                 self.details = Load::Loaded(details);
+                // Comments first, or the related videos if there are none.
+                self.tab = if self.comments.available() {
+                    Tab::Comments
+                } else {
+                    Tab::Related
+                };
                 return self.load_comments();
             }
             Msg::Details(Err(e)) => self.details = Load::Failed(e),
@@ -300,8 +344,12 @@ impl State {
                     return vec![Effect::OpenChannel(details.channel.clone())];
                 }
             }
-            Msg::ShowComments if self.comments.items.is_empty() => return self.load_comments(),
-            Msg::ShowComments => {}
+            Msg::SelectTab(tab) => {
+                self.tab = tab;
+                if tab == Tab::Comments && self.comments.items.is_empty() {
+                    return self.load_comments();
+                }
+            }
             Msg::MoreComments => return self.load_comments(),
             Msg::Comments(result) => self.comments.loaded(result),
             Msg::OpenReplies(index) => {
@@ -348,8 +396,19 @@ impl State {
             }
             // A previous choice.
             Msg::Subtitles(..) => {}
+            Msg::LeaveFullscreen if !self.fullscreen => {}
+            Msg::ToggleFullscreen | Msg::LeaveFullscreen => {
+                self.fullscreen = !self.fullscreen;
+                return vec![Effect::SetFullscreen(self.fullscreen)];
+            }
+            Msg::Narrow(narrow) => self.narrow = narrow,
         }
         Vec::new()
+    }
+
+    /// The name of the page's layout, see [`layout_name`].
+    pub fn layout(&self) -> &'static str {
+        layout_name(self.narrow, self.fullscreen)
     }
 
     /// Offers `tracks`, showing the one in the preferred language.
@@ -445,9 +504,6 @@ pub struct VideoPage {
     related_rows: Vec<adw::ActionRow>,
     comment_list: CommentList,
     avatar: adw::Avatar,
-    fullscreen: bool,
-    /// Whether the page is narrower than [`WIDE_WIDTH_SP`].
-    narrow: bool,
     /// The window made fullscreen, to restore it when the page closes.
     window: Option<gtk::Window>,
 }
@@ -457,11 +513,7 @@ pub struct VideoPage {
 #[derive(Debug)]
 pub enum PageMsg {
     State(Msg),
-    ToggleFullscreen,
-    LeaveFullscreen,
     TogglePlay,
-    /// The page became narrower (true) or wider than [`WIDE_WIDTH_SP`].
-    Narrow(bool),
 }
 
 #[derive(Debug)]
@@ -485,7 +537,7 @@ impl Component for VideoPage {
         #[root]
         adw::ToolbarView {
             #[watch]
-            set_reveal_top_bars: !model.fullscreen,
+            set_reveal_top_bars: !model.state.fullscreen,
 
             add_top_bar = &adw::HeaderBar {
                 pack_end = &gtk::MenuButton {
@@ -511,8 +563,8 @@ impl Component for VideoPage {
                     WIDE_WIDTH_SP,
                     adw::LengthUnit::Sp,
                 )) {
-                    connect_apply => PageMsg::Narrow(true),
-                    connect_unapply => PageMsg::Narrow(false),
+                    connect_apply => PageMsg::State(Msg::Narrow(true)),
+                    connect_unapply => PageMsg::State(Msg::Narrow(false)),
                 },
 
                 #[name = "layouts"]
@@ -611,21 +663,23 @@ impl Component for VideoPage {
 
             },
 
-            // Comments and related videos, shown one at a time. Comments
-            // are chosen by `select_tab` once the details are loaded.
+            // Comments and related videos, shown one at a time.
             #[name = "tabs"]
             adw::ToggleGroup {
                 set_homogeneous: true,
                 #[watch]
                 set_visible: matches!(model.state.details, Load::Loaded(_)),
                 // Labelled and enabled by `update_comments_tab`.
-                add: adw::Toggle::builder().name("comments").build(),
-                add: adw::Toggle::builder().name("related").label("Related Videos").build(),
+                add: adw::Toggle::builder().name(Tab::Comments.name()).build(),
+                add: adw::Toggle::builder().name(Tab::Related.name()).label("Related Videos").build(),
+                #[watch]
+                #[block_signal(tab_handler)]
+                set_active_name: Some(model.state.tab.name()),
                 connect_active_name_notify[sender] => move |tabs| {
-                    if tabs.active_name().as_deref() == Some("comments") {
-                        sender.input(PageMsg::State(Msg::ShowComments));
+                    if let Some(tab) = tabs.active_name().as_deref().and_then(Tab::from_name) {
+                        sender.input(PageMsg::State(Msg::SelectTab(tab)));
                     }
-                },
+                } @tab_handler,
             },
 
             #[name = "tab_stack"]
@@ -635,9 +689,9 @@ impl Component for VideoPage {
                 set_visible: matches!(model.state.details, Load::Loaded(_)),
 
                 #[local_ref]
-                add_named[Some("comments")] = comments -> adw::PreferencesGroup {},
+                add_named[Some(Tab::Comments.name())] = comments -> adw::PreferencesGroup {},
                 #[local_ref]
-                add_named[Some("related")] = related -> adw::PreferencesGroup {
+                add_named[Some(Tab::Related.name())] = related -> adw::PreferencesGroup {
                     adw::ActionRow {
                         set_title: "No related videos",
                         #[watch]
@@ -669,12 +723,12 @@ impl Component for VideoPage {
                         position,
                         playing,
                     }),
-                    player_view::Output::ToggleFullscreen => PageMsg::ToggleFullscreen,
+                    player_view::Output::ToggleFullscreen => PageMsg::State(Msg::ToggleFullscreen),
                     player_view::Output::SelectSubtitles(index) => {
                         PageMsg::State(Msg::SelectSubtitles(index))
                     }
                 });
-        let model = VideoPage {
+        let mut model = VideoPage {
             state,
             services,
             player,
@@ -692,8 +746,6 @@ impl Component for VideoPage {
                 }),
             ),
             avatar: adw::Avatar::default(),
-            fullscreen: false,
-            narrow: false,
             window: None,
         };
         let related = &model.related;
@@ -712,7 +764,7 @@ impl Component for VideoPage {
         widgets.layouts.set_child("player", model.player.widget());
         widgets.layouts.set_child("details", &widgets.details);
         model.place_player(&widgets);
-        model.run(effects, &sender);
+        model.run(effects, &sender, &root);
         ComponentParts { model, widgets }
     }
 
@@ -728,10 +780,10 @@ impl Component for VideoPage {
                 let details = matches!(msg, Msg::Details(_));
                 let comments = matches!(
                     msg,
-                    Msg::Comments(_) | Msg::ShowComments | Msg::MoreComments
+                    Msg::Comments(_) | Msg::SelectTab(_) | Msg::MoreComments
                 );
                 let effects = self.state.update(msg);
-                self.run(effects, &sender);
+                self.run(effects, &sender, root);
                 if details {
                     self.fill_related(&sender);
                 }
@@ -739,31 +791,10 @@ impl Component for VideoPage {
                     self.comment_list.update(&self.state.comments);
                     self.update_comments_tab(widgets);
                 }
-                if details {
-                    self.select_tab(widgets);
-                }
-            }
-            PageMsg::Narrow(narrow) => {
-                self.narrow = narrow;
-                self.place_player(widgets);
             }
             PageMsg::TogglePlay => self.player.emit(player_view::Msg::TogglePlay),
-            PageMsg::LeaveFullscreen if self.fullscreen => {
-                self.update_with_view(widgets, PageMsg::ToggleFullscreen, sender, root);
-                return;
-            }
-            PageMsg::LeaveFullscreen => {}
-            PageMsg::ToggleFullscreen => {
-                self.fullscreen = !self.fullscreen;
-                self.player
-                    .emit(player_view::Msg::SetFullscreen(self.fullscreen));
-                self.place_player(widgets);
-                self.window = root.root().and_downcast::<gtk::Window>();
-                if let Some(window) = &self.window {
-                    window.set_fullscreened(self.fullscreen);
-                }
-            }
         }
+        self.place_player(widgets);
         self.update_view(widgets, sender);
     }
 
@@ -779,7 +810,7 @@ impl Component for VideoPage {
                 );
             }
         }
-        if self.fullscreen
+        if self.state.fullscreen
             && let Some(window) = &self.window
         {
             window.set_fullscreened(false);
@@ -801,31 +832,24 @@ impl VideoPage {
     /// Shows the number of comments on their tab, which is disabled when
     /// there are none.
     fn update_comments_tab(&self, widgets: &VideoPageWidgets) {
-        if let Some(tab) = widgets.tabs.toggle_by_name("comments") {
+        if let Some(tab) = widgets.tabs.toggle_by_name(Tab::Comments.name()) {
             tab.set_label(Some(&format::comments_title(self.state.comments.count)));
             tab.set_enabled(self.state.comments.available());
         }
     }
 
-    /// Shows the comments, or the related videos when there are none.
-    fn select_tab(&self, widgets: &VideoPageWidgets) {
-        let tab = if self.state.comments.available() {
-            "comments"
-        } else {
-            "related"
-        };
-        widgets.tabs.set_active_name(Some(tab));
-    }
-
     /// Shows the layout for the current width and fullscreen state.
     fn place_player(&self, widgets: &VideoPageWidgets) {
-        widgets
-            .layouts
-            .set_layout_name(layout_name(self.narrow, self.fullscreen));
-        self.player.widget().set_vexpand(self.fullscreen);
+        widgets.layouts.set_layout_name(self.state.layout());
+        self.player.widget().set_vexpand(self.state.fullscreen);
     }
 
-    fn run(&self, effects: Vec<Effect>, sender: &ComponentSender<Self>) {
+    fn run(
+        &mut self,
+        effects: Vec<Effect>,
+        sender: &ComponentSender<Self>,
+        root: &adw::ToolbarView,
+    ) {
         for effect in effects {
             match effect {
                 Effect::LoadDetails(id) => {
@@ -910,6 +934,14 @@ impl VideoPage {
                 Effect::OpenReplies(comment) => {
                     let _ = sender.output(Output::OpenReplies(comment));
                 }
+                Effect::SetFullscreen(fullscreen) => {
+                    self.player
+                        .emit(player_view::Msg::SetFullscreen(fullscreen));
+                    self.window = root.root().and_downcast::<gtk::Window>();
+                    if let Some(window) = &self.window {
+                        window.set_fullscreened(fullscreen);
+                    }
+                }
             }
         }
     }
@@ -980,8 +1012,8 @@ fn add_shortcuts(root: &adw::ToolbarView, sender: &ComponentSender<VideoPage>) {
         ));
     };
     add("space", || PageMsg::TogglePlay);
-    add("f", || PageMsg::ToggleFullscreen);
-    add("Escape", || PageMsg::LeaveFullscreen);
+    add("f", || PageMsg::State(Msg::ToggleFullscreen));
+    add("Escape", || PageMsg::State(Msg::LeaveFullscreen));
     root.add_controller(controller);
 }
 
@@ -1045,6 +1077,49 @@ mod tests {
         assert_eq!(layout_name(true, false), "narrow");
         assert_eq!(layout_name(false, true), "fullscreen");
         assert_eq!(layout_name(true, true), "fullscreen");
+    }
+
+    #[test]
+    fn fullscreen_is_toggled_and_left() {
+        let (mut state, _) = State::new(init());
+        assert!(
+            state.update(Msg::LeaveFullscreen).is_empty(),
+            "not fullscreen"
+        );
+        assert_eq!(state.layout(), "wide");
+
+        assert_eq!(
+            state.update(Msg::ToggleFullscreen),
+            [Effect::SetFullscreen(true)]
+        );
+        assert!(state.fullscreen);
+        assert_eq!(state.layout(), "fullscreen");
+
+        assert_eq!(
+            state.update(Msg::LeaveFullscreen),
+            [Effect::SetFullscreen(false)]
+        );
+        assert!(!state.fullscreen);
+        assert_eq!(
+            state.update(Msg::ToggleFullscreen),
+            [Effect::SetFullscreen(true)]
+        );
+        assert_eq!(
+            state.update(Msg::ToggleFullscreen),
+            [Effect::SetFullscreen(false)]
+        );
+    }
+
+    #[test]
+    fn narrow_pages_fix_the_player_above_the_details() {
+        let (mut state, _) = State::new(init());
+        assert!(state.update(Msg::Narrow(true)).is_empty());
+        assert_eq!(state.layout(), "narrow");
+        state.update(Msg::ToggleFullscreen);
+        assert_eq!(state.layout(), "fullscreen");
+        state.update(Msg::ToggleFullscreen);
+        state.update(Msg::Narrow(false));
+        assert_eq!(state.layout(), "wide");
     }
 
     fn video(id: &str) -> Video {
@@ -1468,14 +1543,17 @@ mod tests {
         assert_eq!(state.comments.count, Some(3));
         assert!(state.comments.loading);
         assert!(
-            state.update(Msg::ShowComments).is_empty(),
+            state.update(Msg::SelectTab(Tab::Comments)).is_empty(),
             "already loading"
         );
 
         state.update(Msg::Comments(Ok(page(&["a", "b"], Some("p2")))));
         assert!(!state.comments.loading);
         assert_eq!(state.comments.items, [comment("a"), comment("b")]);
-        assert!(state.update(Msg::ShowComments).is_empty(), "already loaded");
+        assert!(
+            state.update(Msg::SelectTab(Tab::Comments)).is_empty(),
+            "already loaded"
+        );
     }
 
     #[test]
@@ -1522,16 +1600,37 @@ mod tests {
         assert!(!state.comments.loading);
 
         assert_eq!(
-            state.update(Msg::ShowComments),
+            state.update(Msg::SelectTab(Tab::Comments)),
             [Effect::LoadComments("p1".into())]
         );
         assert_eq!(state.comments.error, None);
     }
 
     #[test]
+    fn details_show_the_comments_tab_if_there_are_comments() {
+        let state = with_comments();
+        assert_eq!(state.tab, Tab::Comments);
+
+        let (mut state, _) = State::new(init());
+        state.update(Msg::Details(Ok(details())));
+        assert_eq!(state.tab, Tab::Related);
+    }
+
+    #[test]
+    fn switching_tabs_keeps_the_loaded_comments() {
+        let mut state = with_comments();
+        state.update(Msg::Comments(Ok(page(&["a"], Some("p2")))));
+        assert!(state.update(Msg::SelectTab(Tab::Related)).is_empty());
+        assert_eq!(state.tab, Tab::Related);
+        assert!(state.update(Msg::SelectTab(Tab::Comments)).is_empty());
+        assert_eq!(state.tab, Tab::Comments);
+        assert_eq!(state.comments.items, [comment("a")]);
+    }
+
+    #[test]
     fn comments_need_details() {
         let (mut state, _) = State::new(init());
-        assert!(state.update(Msg::ShowComments).is_empty());
+        assert!(state.update(Msg::SelectTab(Tab::Comments)).is_empty());
         assert!(state.update(Msg::MoreComments).is_empty());
     }
 
