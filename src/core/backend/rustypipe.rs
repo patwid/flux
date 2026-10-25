@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use rustypipe::client::RustyPipe;
 use rustypipe::model::{self as rp, richtext::ToPlaintext};
 
-use super::{Backend, BackendError, Downloader, ProgressFn, Result, visionos};
+use super::{Backend, BackendError, Downloader, ProgressFn, Result, fetch, visionos};
 use crate::core::model::SegmentRanges;
 use crate::core::model::{
     AudioStream, Channel, Comment, CommentPage, DownloadKind, SavedDownload, SearchItem, Streams,
@@ -165,6 +165,26 @@ impl Backend for RustyPipeBackend {
 }
 
 impl RustyPipeBackend {
+    /// Downloads `url` (of `size` bytes) to `path`.
+    async fn fetch(
+        &self,
+        url: &str,
+        size: Option<u64>,
+        path: &std::path::Path,
+        on_bytes: &mut impl FnMut(u64),
+    ) -> Result<()> {
+        let size = size.ok_or_else(|| BackendError::Other("unknown stream size".into()))?;
+        fetch::fetch(
+            &self.http,
+            url,
+            size,
+            path,
+            &fetch::Options::default(),
+            on_bytes,
+        )
+        .await
+    }
+
     async fn visionos_streams(&self, video_id: &str) -> Result<Streams> {
         let visitor_data = self.client.query().get_visitor_data(false).await?;
         visionos::fetch_streams(&self.http, video_id, &visitor_data).await
@@ -268,37 +288,6 @@ impl RustyPipeBackend {
             }
         }
         saved
-    }
-}
-
-impl RustyPipeBackend {
-    /// Downloads `url` (of `size` bytes) to `path` in chunks.
-    async fn fetch(
-        &self,
-        url: &str,
-        size: Option<u64>,
-        path: &std::path::Path,
-        on_bytes: &mut impl FnMut(u64),
-    ) -> Result<()> {
-        use tokio::io::AsyncWriteExt;
-
-        let size = size.ok_or_else(|| BackendError::Other("unknown stream size".into()))?;
-        let mut file = tokio::fs::File::create(path).await?;
-        for (start, end) in download::chunk_ranges(size, download::CHUNK_SIZE) {
-            let mut response = self
-                .http
-                .get(url)
-                .header("Range", format!("bytes={start}-{end}"))
-                .send()
-                .await?
-                .error_for_status()?;
-            while let Some(chunk) = response.chunk().await? {
-                file.write_all(&chunk).await?;
-                on_bytes(chunk.len() as u64);
-            }
-        }
-        file.flush().await?;
-        Ok(())
     }
 }
 

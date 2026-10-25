@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use super::model::{
     AudioStream, Download, DownloadKind, DownloadStatus, Streams, SubtitleTrack, Video, VideoStream,
@@ -59,12 +60,57 @@ pub fn plan(streams: &Streams, kind: DownloadKind, max_height: u32) -> Option<Pl
     })
 }
 
-/// Inclusive byte ranges covering `size` bytes in chunks of `chunk` bytes.
-pub fn chunk_ranges(size: u64, chunk: u64) -> Vec<(u64, u64)> {
-    (0..size)
-        .step_by(chunk as usize)
-        .map(|start| (start, (start + chunk).min(size) - 1))
-        .collect()
+/// The next inclusive byte range to request after `offset` of `size`
+/// bytes, at most `chunk` bytes long, or `None` when all bytes are there.
+pub fn next_range(offset: u64, size: u64, chunk: u64) -> Option<(u64, u64)> {
+    (offset < size).then(|| (offset, (offset + chunk).min(size) - 1))
+}
+
+/// How often and how long to wait before retrying a failed request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetryPolicy {
+    /// Retries after the first attempt.
+    pub retries: u32,
+    pub first_delay: Duration,
+    pub max_delay: Duration,
+}
+
+impl Default for RetryPolicy {
+    /// Ten retries, as yt-dlp makes, waiting 1 s, 2 s, 4 s… up to 30 s.
+    fn default() -> Self {
+        RetryPolicy {
+            retries: 10,
+            first_delay: Duration::from_secs(1),
+            max_delay: Duration::from_secs(30),
+        }
+    }
+}
+
+impl RetryPolicy {
+    /// The wait before retry number `retry` (from 0), or `None` if no
+    /// retries are left.
+    pub fn delay(&self, retry: u32) -> Option<Duration> {
+        if retry >= self.retries {
+            return None;
+        }
+        let factor = 2u32.checked_pow(retry).unwrap_or(u32::MAX);
+        Some(
+            self.first_delay
+                .checked_mul(factor)
+                .map_or(self.max_delay, |d| d.min(self.max_delay)),
+        )
+    }
+}
+
+/// Whether a request that failed with HTTP `status` may succeed when retried.
+pub fn retryable_status(status: u16) -> bool {
+    matches!(status, 408 | 429 | 500..=599)
+}
+
+/// The first byte of a `Content-Range` header such as `bytes 10-19/100`.
+pub fn content_range_start(header: &str) -> Option<u64> {
+    let (start, _) = header.strip_prefix("bytes ")?.split_once('-')?;
+    start.parse().ok()
 }
 
 /// ffmpeg arguments muxing a video and an audio file into `output`
@@ -642,10 +688,44 @@ mod tests {
     }
 
     #[test]
-    fn splits_into_chunks() {
-        assert_eq!(chunk_ranges(0, 10), []);
-        assert_eq!(chunk_ranges(10, 10), [(0, 9)]);
-        assert_eq!(chunk_ranges(25, 10), [(0, 9), (10, 19), (20, 24)]);
+    fn next_range_is_a_chunk_from_the_offset() {
+        assert_eq!(next_range(0, 0, 10), None);
+        assert_eq!(next_range(0, 10, 10), Some((0, 9)));
+        assert_eq!(next_range(0, 25, 10), Some((0, 9)));
+        assert_eq!(next_range(13, 25, 10), Some((13, 22)));
+        assert_eq!(next_range(20, 25, 10), Some((20, 24)));
+        assert_eq!(next_range(25, 25, 10), None);
+    }
+
+    #[test]
+    fn retry_delays_double_up_to_the_maximum() {
+        let policy = RetryPolicy {
+            retries: 4,
+            first_delay: Duration::from_secs(1),
+            max_delay: Duration::from_secs(5),
+        };
+        let delays: Vec<_> = (0..5).map(|n| policy.delay(n)).collect();
+        let secs = |s| Some(Duration::from_secs(s));
+        assert_eq!(delays, [secs(1), secs(2), secs(4), secs(5), None]);
+        assert_eq!(policy.delay(u32::MAX), None);
+    }
+
+    #[test]
+    fn server_errors_and_rate_limits_are_retryable() {
+        for status in [408, 429, 500, 502, 503, 504] {
+            assert!(retryable_status(status), "{status}");
+        }
+        for status in [200, 206, 400, 403, 404, 410, 416] {
+            assert!(!retryable_status(status), "{status}");
+        }
+    }
+
+    #[test]
+    fn parses_content_range_start() {
+        assert_eq!(content_range_start("bytes 10-19/100"), Some(10));
+        assert_eq!(content_range_start("bytes 0-0/*"), Some(0));
+        assert_eq!(content_range_start("bytes */100"), None);
+        assert_eq!(content_range_start("10-19/100"), None);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Access to the streaming service.
 
 pub mod fake;
+pub mod fetch;
 pub mod rustypipe;
 pub mod visionos;
 
