@@ -8,13 +8,14 @@ use super::channel::{self, ChannelPage};
 use super::downloads::{self, DownloadsPage};
 use super::feed::FeedPage;
 use super::history::{self, HistoryPage};
+use super::playlist::PlaylistPage;
 use super::replies::RepliesPage;
 use super::search::{self, SearchPage};
 use super::subscriptions::{self, SubscriptionsPage};
 use super::video::{self, VideoPage};
 use super::{Services, log_db_error};
 use crate::core::download;
-use crate::core::model::{Channel, Comment, DownloadKind, HistoryEntry, Video};
+use crate::core::model::{Channel, Comment, DownloadKind, HistoryEntry, Playlist, Video};
 
 /// Windows narrower than this use the mobile layout (bottom view switcher).
 const NARROW_WIDTH_SP: f64 = 550.0;
@@ -41,6 +42,7 @@ pub struct App {
 enum Page {
     Video(Controller<VideoPage>),
     Channel(Controller<ChannelPage>),
+    Playlist(Controller<PlaylistPage>),
     Replies(Controller<RepliesPage>),
 }
 
@@ -48,6 +50,7 @@ enum Page {
 pub enum Msg {
     OpenVideo(Video),
     OpenChannel(Channel),
+    OpenPlaylist(Playlist),
     Download(Video, DownloadKind),
     SubscriptionsChanged,
     OpenReplies(Comment),
@@ -97,6 +100,7 @@ impl From<channel::Output> for Msg {
     fn from(out: channel::Output) -> Self {
         match out {
             channel::Output::OpenVideo(v) => Msg::OpenVideo(v),
+            channel::Output::OpenPlaylist(p) => Msg::OpenPlaylist(p),
             channel::Output::SubscriptionsChanged => Msg::SubscriptionsChanged,
             channel::Output::Toast(text) => Msg::Toast(text),
         }
@@ -256,6 +260,7 @@ impl Component for App {
                 self.history.emit(history::Input::Reload);
             }
             Msg::OpenChannel(channel) => self.open_channel(channel, &sender),
+            Msg::OpenPlaylist(playlist) => self.open_playlist(playlist, &sender),
             Msg::OpenReplies(comment) => self.open_replies(comment),
             Msg::Download(video, kind) => {
                 self.toast(&format!("Downloading “{}”", video.title));
@@ -439,6 +444,14 @@ impl App {
         self.push(&title, Page::Channel(controller));
     }
 
+    fn open_playlist(&mut self, playlist: Playlist, sender: &ComponentSender<Self>) {
+        let title = playlist.name.clone();
+        let controller = PlaylistPage::builder()
+            .launch((self.services.clone(), playlist))
+            .forward(sender.input_sender(), Msg::OpenVideo);
+        self.push(&title, Page::Playlist(controller));
+    }
+
     fn open_replies(&mut self, comment: Comment) {
         let controller = RepliesPage::builder()
             .launch((self.services.clone(), comment))
@@ -450,6 +463,7 @@ impl App {
         let widget: gtk::Widget = match &page {
             Page::Video(c) => c.widget().clone().upcast(),
             Page::Channel(c) => c.widget().clone().upcast(),
+            Page::Playlist(c) => c.widget().clone().upcast(),
             Page::Replies(c) => c.widget().clone().upcast(),
         };
         let nav_page = adw::NavigationPage::new(&widget, title);

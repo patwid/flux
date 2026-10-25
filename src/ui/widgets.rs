@@ -5,7 +5,7 @@ use relm4::gtk::gio;
 use relm4::{adw, gtk};
 
 use super::{format, images};
-use crate::core::model::{Channel, Video};
+use crate::core::model::{Channel, Playlist, Video};
 
 /// An activatable list row for a video.
 pub fn video_row(video: &Video) -> adw::ActionRow {
@@ -18,6 +18,19 @@ pub fn video_row(video: &Video) -> adw::ActionRow {
         .build();
     row.add_prefix(&thumbnail(video.thumbnail_url.as_deref()));
     row
+}
+
+/// An activatable list row for a playlist, opening its page.
+pub fn playlist_row(playlist: &Playlist) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .activatable(true)
+        .use_markup(false)
+        .title_lines(2)
+        .title(&playlist.name)
+        .subtitle(playlist.video_count.map(format::videos).unwrap_or_default())
+        .build();
+    row.add_prefix(&thumbnail(playlist.thumbnail_url.as_deref()));
+    with_chevron(row)
 }
 
 /// Adds a chevron to a row that opens a page.

@@ -142,6 +142,12 @@ pub fn replies(n: u32) -> String {
     format!("{} {unit}", count(n.into()))
 }
 
+/// The number of videos of a playlist, e.g. `12 videos`.
+pub fn videos(n: u64) -> String {
+    let unit = if n == 1 { "video" } else { "videos" };
+    format!("{} {unit}", count(n))
+}
+
 /// A notice that the user subscribed to or unsubscribed from a channel.
 pub fn subscription(channel: &str, subscribed: bool) -> String {
     if subscribed {
@@ -322,6 +328,13 @@ mod tests {
         comment.published = None;
         comment.like_count = Some(0);
         assert_eq!(comment_meta(&comment, now), "");
+    }
+
+    #[test]
+    fn counts_videos() {
+        assert_eq!(videos(1), "1 video");
+        assert_eq!(videos(12), "12 videos");
+        assert_eq!(videos(1_500), "1.5K videos");
     }
 
     #[test]

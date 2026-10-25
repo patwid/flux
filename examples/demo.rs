@@ -10,8 +10,8 @@ use chrono::Utc;
 use flux::core::backend::fake::FakeBackend;
 use flux::core::db::Db;
 use flux::core::model::{
-    Channel, Comment, CommentPage, SearchItem, Streams, SubtitleTrack, Video, VideoDetails,
-    VideoStream,
+    Channel, Comment, CommentPage, Playlist, SearchItem, Streams, SubtitleTrack, Video,
+    VideoDetails, VideoStream,
 };
 use flux::core::subtitles::{self, Cue};
 use flux::ui::Services;
@@ -253,6 +253,24 @@ fn main() {
     }
     backend = backend.with_feed(&channel.id, videos.clone());
     backend = backend.with_channel(channel.clone(), videos.clone());
+    let playlists = [
+        ("All patterns", videos.clone()),
+        ("Moving patterns", videos[..1].to_vec()),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, (name, videos))| {
+        let playlist = Playlist {
+            id: format!("demo-playlist{i}"),
+            name: name.into(),
+            thumbnail_url: videos[0].thumbnail_url.clone(),
+            video_count: Some(videos.len() as u64),
+        };
+        backend = std::mem::take(&mut backend).with_playlist(&playlist.id, videos);
+        playlist
+    })
+    .collect();
+    backend = backend.with_channel_playlists(&channel.id, playlists);
     let mut results: Vec<_> = videos.iter().cloned().map(SearchItem::Video).collect();
     results.insert(0, SearchItem::Channel(channel));
     backend = backend.with_search("demo", results);
