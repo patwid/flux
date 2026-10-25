@@ -15,7 +15,12 @@ pub fn feed_url(channel_id: &str) -> String {
 
 /// Parses a YouTube channel feed into videos, in feed order.
 pub fn parse_channel_feed(xml: &[u8]) -> Result<Vec<Video>, FeedError> {
-    let feed = feed_rs::parser::parse(xml)?;
+    // feed-rs rejects the whole feed over an empty description, which
+    // YouTube writes for videos without one.
+    let xml = String::from_utf8_lossy(xml)
+        .replace("<media:description></media:description>", "")
+        .replace("<media:description/>", "");
+    let feed = feed_rs::parser::parse(xml.as_bytes())?;
     Ok(feed
         .entries
         .into_iter()
@@ -117,6 +122,15 @@ mod tests {
             }
         );
         assert_eq!(videos[1].id, "9bZkp7q19f0");
+    }
+
+    #[test]
+    fn parses_feed_with_empty_descriptions() {
+        let xml = String::from_utf8_lossy(FIXTURE).replace(
+            "<media:description>Older description.</media:description>",
+            "<media:description></media:description>",
+        );
+        assert_eq!(parse_channel_feed(xml.as_bytes()).unwrap().len(), 2);
     }
 
     #[test]
