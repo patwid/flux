@@ -16,7 +16,7 @@ use crate::core::model::{
     Channel, Comment, CommentPage, DownloadKind, PlaybackSource, Streams, SubtitleTrack, Video,
     VideoDetails,
 };
-use crate::core::subtitles::{self, Cue};
+use crate::core::subtitles::{self, Cue, Placement};
 use crate::core::{backend, streams};
 
 use crate::core::streams::DEFAULT_MAX_HEIGHT as MAX_HEIGHT;
@@ -286,6 +286,14 @@ impl State {
             }
             Msg::Subtitles(index, result) if self.subtitles.selected == Some(index) => {
                 return vec![match result {
+                    // Auto-generated tracks place every cue at the left edge
+                    // (`align:start position:0%`); YouTube centers them.
+                    Ok(mut cues) if self.subtitles.tracks[index].auto_generated => {
+                        for cue in &mut cues {
+                            cue.placement = Placement::default();
+                        }
+                        Effect::ShowSubtitles(cues)
+                    }
                     Ok(cues) => Effect::ShowSubtitles(cues),
                     Err(e) => {
                         self.subtitles.selected = None;
@@ -1370,6 +1378,36 @@ mod tests {
             })
         );
         state
+    }
+
+    #[test]
+    fn auto_generated_subtitles_are_shown_unplaced() {
+        let (mut state, _) = State::new(init());
+        state.update(Msg::Streams(Ok(Streams {
+            subtitles: vec![
+                track("en"),
+                SubtitleTrack {
+                    auto_generated: true,
+                    ..track("de")
+                },
+            ],
+            ..muxed()
+        })));
+        let placed = || {
+            let vtt = "WEBVTT\n\n00:00.000 --> 00:01.000 align:start position:0%\nHi\n";
+            subtitles::parse_vtt(vtt)
+        };
+
+        state.update(Msg::SelectSubtitles(Some(0)));
+        assert_eq!(
+            state.update(Msg::Subtitles(0, Ok(placed()))),
+            [Effect::ShowSubtitles(placed())]
+        );
+        state.update(Msg::SelectSubtitles(Some(1)));
+        assert_eq!(
+            state.update(Msg::Subtitles(1, Ok(placed()))),
+            [Effect::ShowSubtitles(cues())]
+        );
     }
 
     #[test]
