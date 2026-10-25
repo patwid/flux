@@ -89,7 +89,7 @@ pub struct Init {
 }
 
 // See `PageMsg`.
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum Msg {
     Details(Result<VideoDetails, String>),
@@ -164,8 +164,6 @@ pub enum Effect {
     OpenReplies(Comment),
 }
 
-/// Where to resume a video watched up to `saved` seconds. Videos watched to
-/// (almost) the end, or barely started, restart from the beginning.
 /// The layout of the video page: the player above the scrolled details
 /// (narrow), scrolling with them (wide), or alone (fullscreen).
 pub fn layout_name(narrow: bool, fullscreen: bool) -> &'static str {
@@ -176,6 +174,8 @@ pub fn layout_name(narrow: bool, fullscreen: bool) -> &'static str {
     }
 }
 
+/// Where to resume a video watched up to `saved` seconds. Videos watched to
+/// (almost) the end, or barely started, restart from the beginning.
 pub fn resume_point(saved: u32, duration: Option<u32>) -> u32 {
     // Within the last 10 s and past 90 % counts as finished.
     let near_end = duration.is_some_and(|d| saved + 10 >= d && saved * 10 >= d * 9);
@@ -448,7 +448,7 @@ pub struct VideoPage {
 }
 
 // Messages are moved rarely; boxing `Msg` would only add noise.
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub enum PageMsg {
     State(Msg),

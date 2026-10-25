@@ -1,6 +1,7 @@
 //! WebVTT subtitles: parsing and finding the cue to show.
 
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::time::Duration;
 
 use super::model::SubtitleTrack;
@@ -226,7 +227,7 @@ pub fn parse_srv3(xml: &str) -> Vec<Cue> {
             }
             Ok(Event::GeneralRef(e)) => {
                 if let Some((.., text)) = &mut paragraph {
-                    text.push_str(&format!("&{};", e.html_content()));
+                    let _ = write!(text, "&{};", e.html_content());
                 }
             }
             Ok(Event::End(e)) if e.name().as_ref() == "p" => {
@@ -444,7 +445,8 @@ pub fn to_vtt(cues: &[Cue]) -> String {
             .replace('&', "&amp;")
             .replace('<', "&lt;")
             .replace('>', "&gt;");
-        vtt += &format!(
+        let _ = write!(
+            vtt,
             "\n{} --> {}{}\n{text}\n",
             timestamp(cue.start),
             timestamp(cue.end),
@@ -464,9 +466,11 @@ fn settings(placement: &Placement) -> String {
     let mut settings = String::new();
     match placement.line {
         Line::Auto => {}
-        Line::Number(n) => settings += &format!(" line:{n}"),
+        Line::Number(n) => {
+            let _ = write!(settings, " line:{n}");
+        }
         Line::Percent(p) => {
-            settings += &format!(" line:{p}%,{}", anchor(placement.line_align));
+            let _ = write!(settings, " line:{p}%,{}", anchor(placement.line_align));
         }
     }
     if let Some(position) = placement.position {
@@ -476,10 +480,10 @@ fn settings(placement: &Placement) -> String {
             Some(Anchor::Center) => "center",
             Some(Anchor::End) => "line-right",
         };
-        settings += &format!(" position:{position}%,{align}");
+        let _ = write!(settings, " position:{position}%,{align}");
     }
     if let Some(size) = placement.size {
-        settings += &format!(" size:{size}%");
+        let _ = write!(settings, " size:{size}%");
     }
     let align = match placement.align {
         Align::Start => "start",
@@ -489,7 +493,7 @@ fn settings(placement: &Placement) -> String {
         Align::Right => "right",
     };
     if placement.align != Align::Center {
-        settings += &format!(" align:{align}");
+        let _ = write!(settings, " align:{align}");
     }
     settings
 }

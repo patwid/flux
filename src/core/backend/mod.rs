@@ -95,7 +95,7 @@ pub fn saved_track(track: &SubtitleTrack, path: &std::path::Path) -> Result<Subt
 pub async fn with_fresh_urls<T, F, Fut>(refreshes: u32, mut attempt: F) -> Result<T>
 where
     F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = Result<T>>,
+    Fut: Future<Output = Result<T>>,
 {
     let mut refreshed = 0;
     loop {

@@ -164,7 +164,7 @@ async fn fetch_range(
 pub async fn with_retries<T, F, Fut>(policy: &RetryPolicy, mut attempt: F) -> Result<T>
 where
     F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = reqwest::Result<T>>,
+    Fut: Future<Output = reqwest::Result<T>>,
 {
     let mut retry = 0;
     loop {
